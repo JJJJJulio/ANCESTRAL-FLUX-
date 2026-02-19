@@ -42,6 +42,10 @@ LINK_DIST = 34
 LINK_DIST2 = LINK_DIST * LINK_DIST
 CELL = 42               # grid para acelerar vecindad
 MAX_LINKS_PER_PARTICLE = 3
+MAX_LINK_SEGMENTS = 2600          # limite global de lineas por frame
+LINK_UPDATE_EVERY = 2             # recalcula links cada N frames
+LINK_ALPHA_MAX = 62
+
 
 # ---------- STATE ----------
 img_src = None
@@ -52,6 +56,7 @@ export_frame = 0
 # salida export por sesion
 session_stamp = ""
 frames_dir = ""
+link_segments = []                # cache de segmentos (x1,y1,x2,y2,alpha)
 
 # paletas (se interpolan dinamicamente)
 PALETTES = [
@@ -260,8 +265,11 @@ def mode_profile():
         return 0.33, 1.42, 1.35
 
 
-def draw_links(g, ink_col):
+def rebuild_link_segments():
     # grid hashing simple para no hacer O(n^2) completo
+    global link_segments
+    link_segments = []
+
     grid = {}
     for i in range(len(particles)):
         p = particles[i]
@@ -272,6 +280,7 @@ def draw_links(g, ink_col):
             grid[key] = []
         grid[key].append(i)
 
+    total_segments = 0
     for i in range(len(particles)):
         p = particles[i]
         cx = int(p.pos.x / CELL)
@@ -293,17 +302,30 @@ def draw_links(g, ink_col):
                     d2 = dx * dx + dy * dy
                     if d2 < LINK_DIST2:
                         d = sqrt(d2)
-                        a = int(map(d, 0, LINK_DIST, 75, 0))
-                        g.stroke(ink_col[0], ink_col[1], ink_col[2], a)
-                        g.strokeWeight(0.65)
-                        g.line(p.pos.x, p.pos.y, q.pos.x, q.pos.y)
-                        links += 1
-                        if links >= MAX_LINKS_PER_PARTICLE:
-                            break
+                        a = int(map(d, 0, LINK_DIST, LINK_ALPHA_MAX, 0))
+                        if a > 0:
+                            link_segments.append((p.pos.x, p.pos.y, q.pos.x, q.pos.y, a))
+                            total_segments += 1
+                            links += 1
+                            if total_segments >= MAX_LINK_SEGMENTS:
+                                return
+                            if links >= MAX_LINKS_PER_PARTICLE:
+                                break
                 if links >= MAX_LINKS_PER_PARTICLE:
                     break
             if links >= MAX_LINKS_PER_PARTICLE:
                 break
+
+
+def draw_links(g, ink_col):
+    # recalculo intermitente para suavizar costo en tiempo real
+    if frameCount % LINK_UPDATE_EVERY == 0 or len(link_segments) == 0:
+        rebuild_link_segments()
+
+    g.strokeWeight(0.6)
+    for seg in link_segments:
+        g.stroke(ink_col[0], ink_col[1], ink_col[2], seg[4])
+        g.line(seg[0], seg[1], seg[2], seg[3])
 
 
 def draw_particle_with_glow(g, p, speed, ink_col, glow_col, glow_mult):
@@ -386,8 +408,8 @@ def draw():
     textSize(13)
     text("E export | 1/2/3 modo | G glow:%s | L links:%s | P palette:%s | H mouse field:%s" %
          (str(GLOW_ON), str(LINES_ON), str(PALETTE_ON), str(MOUSE_FORCE_ON)), 24, 38)
-    text("frame:%d/%d | particles:%d | fmt:%s" %
-         (export_frame, TOTAL_FRAMES, len(particles), EXPORT_FMT), 24, 58)
+    text("frame:%d/%d | particles:%d | links:%d | fmt:%s" %
+         (export_frame, TOTAL_FRAMES, len(particles), len(link_segments), EXPORT_FMT), 24, 58)
 
     # Export frames
     if EXPORT:
