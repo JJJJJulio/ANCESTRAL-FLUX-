@@ -7,47 +7,9 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>ANCESTRAL FLUX — Web</title>
-  <!-- cache-busting para forzar refresco en GitHub Pages/CDN -->
-  <link rel="stylesheet" href="styles.css?v=20260220-2" />
-  <script>
-    (function () {
-      const ASSET_VERSION = '20260220-2';
-
-      function loadScript(src, onOk, onErr) {
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = onOk;
-        s.onerror = onErr;
-        document.head.appendChild(s);
-      }
-
-      function showStatus(text) {
-        const node = document.getElementById('status-readout');
-        if (node) node.textContent = text;
-      }
-
-      function loadSketch() {
-        const sketch = document.createElement('script');
-        sketch.src = `web-sketch.js?v=${ASSET_VERSION}`;
-        sketch.defer = true;
-        document.head.appendChild(sketch);
-
-        window.setTimeout(() => {
-          if (!window.__AF_SKETCH_READY__) {
-            showStatus('No se pudo iniciar el render. Revisa conexión/CDN o limpia caché.');
-          }
-        }, 4200);
-      }
-
-      loadScript(
-        'https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js',
-        loadSketch,
-        () => loadScript('https://unpkg.com/p5@1.9.4/lib/p5.min.js', loadSketch, () => {
-          showStatus('Error cargando p5.js desde ambos CDNs.');
-        })
-      );
-    })();
-  </script>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="./vendor/p5.min.js"></script>
+  <script defer src="./web-sketch.js"></script>
 </head>
 <body>
   <aside class="ui" id="overlay-ui" aria-label="Panel de comandos">
