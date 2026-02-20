@@ -28,6 +28,13 @@ let trailsOn = true;
 let paletteOffset = 0;
 let seedValue = 4242;
 let shapeImg = null;
+let controlsReady = false;
+let statusNode = null;
+let overlayNode = null;
+let uiVisible = true;
+
+// Layout del arte: centrado perfecto + escala automática con margen de seguridad (~10%).
+let artLayout = { x: 0, y: 0, w: 100, h: 100 };
 
 
 function preload() {
@@ -98,8 +105,13 @@ class Particle {
 function setup() {
   createCanvas(windowWidth, windowHeight, P2D);
   pg = createGraphics(windowWidth, windowHeight, P2D);
+  recomputeArtLayout();
   reseed(seedValue);
   buildParticlesFromText();
+  setupControls();
+
+  // Listener explícito para resize responsive en cualquier contenedor/entorno.
+  window.addEventListener("resize", handleResize);
 }
 
 function draw() {
@@ -143,6 +155,7 @@ function draw() {
 
   background(bg[0], bg[1], bg[2]);
   image(pg, 0, 0);
+  updateStatusReadout();
   drawMouseAura(glow, ink);
 }
 
@@ -246,18 +259,19 @@ function buildParticlesFromText() {
   stamp.noStroke();
   stamp.fill(255);
 
+  // Escala automática basada en min(windowWidth, windowHeight) con margen de seguridad 10%.
+  const { x: areaX, y: areaY, w: areaW, h: areaH } = artLayout;
+
   if (shapeImg && shapeImg.width > 0 && shapeImg.height > 0) {
-    const pad = min(width, height) * 0.12;
-    const availW = width - pad * 2;
-    const availH = height - pad * 2;
-    const s = min(availW / shapeImg.width, availH / shapeImg.height);
+    const s = min(areaW / shapeImg.width, areaH / shapeImg.height);
     const tw = shapeImg.width * s;
     const th = shapeImg.height * s;
-    stamp.image(shapeImg, (width - tw) * 0.5, (height - th) * 0.5, tw, th);
+    // Centrado absoluto en X/Y dentro del área artística.
+    stamp.image(shapeImg, areaX + (areaW - tw) * 0.5, areaY + (areaH - th) * 0.5, tw, th);
   } else {
     stamp.textAlign(CENTER, CENTER);
-    stamp.textSize(min(width, height) * 0.25);
-    stamp.text("CHAKANA", width * 0.5, height * 0.5);
+    stamp.textSize(areaH * 0.25);
+    stamp.text("CHAKANA", areaX + areaW * 0.5, areaY + areaH * 0.5);
   }
 
   stamp.loadPixels();
@@ -282,17 +296,115 @@ function reseed(v = int(random(1e9))) {
 }
 
 function keyPressed() {
-  if (key >= '1' && key <= '5') mode = int(key);
-  if (key === 'p' || key === 'P') paletteOn = !paletteOn;
-  if (key === 'v' || key === 'V') linesOn = !linesOn;
-  if (key === 'g' || key === 'G') glowOn = !glowOn;
-  if (key === 't' || key === 'T') trailsOn = !trailsOn;
-  if (key === 'c' || key === 'C') paletteOffset = int(random(BAUHAUS.length));
-  if (key === 'r' || key === 'R') { reseed(); buildParticlesFromText(); }
+  if (key >= '1' && key <= '5') setMode(int(key));
+  if (key === 'p' || key === 'P') togglePalette();
+  if (key === 'v' || key === 'V') toggleLines();
+  if (key === 'g' || key === 'G') toggleGlow();
+  if (key === 't' || key === 'T') toggleTrails();
+  if (key === 'c' || key === 'C') randomizePaletteOffset();
+  if (key === 'r' || key === 'R') resetSeed();
+  if (key === 'h' || key === 'H') toggleUiOverlay();
+}
+
+function setMode(nextMode) {
+  mode = constrain(nextMode, 1, 5);
+}
+
+function togglePalette() {
+  paletteOn = !paletteOn;
+}
+
+function toggleLines() {
+  linesOn = !linesOn;
+}
+
+function toggleGlow() {
+  glowOn = !glowOn;
+}
+
+function toggleTrails() {
+  trailsOn = !trailsOn;
+}
+
+function randomizePaletteOffset() {
+  paletteOffset = int(random(BAUHAUS.length));
+}
+
+function resetSeed() {
+  reseed();
+  buildParticlesFromText();
+}
+
+function toggleUiOverlay() {
+  uiVisible = !uiVisible;
+  if (overlayNode) overlayNode.classList.toggle('is-hidden', !uiVisible);
+}
+
+function setupControls() {
+  if (controlsReady) return;
+  statusNode = document.getElementById('status-readout');
+  overlayNode = document.getElementById('overlay-ui');
+  const actions = {
+    mode: (btn) => setMode(int(btn.dataset.mode)),
+    palette: togglePalette,
+    lines: toggleLines,
+    glow: toggleGlow,
+    trails: toggleTrails,
+    'palette-shift': randomizePaletteOffset,
+    reseed: resetSeed,
+  };
+
+  for (const btn of document.querySelectorAll('[data-action]')) {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      if (actions[action]) actions[action](btn);
+      updateStatusReadout(true);
+    });
+  }
+
+  controlsReady = true;
+  updateStatusReadout(true);
+}
+
+function updateStatusReadout(force = false) {
+  if (!controlsReady || !statusNode) return;
+  if (!force && frameCount % 8 !== 0) return;
+
+  for (const btn of document.querySelectorAll('[data-action="mode"]')) {
+    btn.classList.toggle('is-active', int(btn.dataset.mode) === mode);
+  }
+
+  const activeByAction = {
+    palette: paletteOn,
+    lines: linesOn,
+    glow: glowOn,
+    trails: trailsOn,
+  };
+
+  for (const [action, active] of Object.entries(activeByAction)) {
+    const btn = document.querySelector(`[data-action="${action}"]`);
+    if (btn) btn.classList.toggle('is-active', active);
+  }
+
+  statusNode.textContent = `Modo ${mode} · Paleta ${paletteOn ? 'ON' : 'OFF'} · Líneas ${linesOn ? 'ON' : 'OFF'} · Glow ${glowOn ? 'ON' : 'OFF'} · Trails ${trailsOn ? 'ON' : 'OFF'} · Seed ${seedValue} · UI ${uiVisible ? 'ON' : 'OFF'}`;
+}
+
+
+function recomputeArtLayout() {
+  const safeSide = min(windowWidth, windowHeight) * 0.9;
+  artLayout.w = safeSide;
+  artLayout.h = safeSide;
+  artLayout.x = (windowWidth - safeSide) * 0.5;
+  artLayout.y = (windowHeight - safeSide) * 0.5;
+}
+
+function handleResize() {
+  resizeCanvas(windowWidth, windowHeight);
+  pg = createGraphics(windowWidth, windowHeight, P2D);
+  recomputeArtLayout();
+  buildParticlesFromText();
 }
 
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  pg = createGraphics(windowWidth, windowHeight, P2D);
-  buildParticlesFromText();
+  handleResize();
 }
