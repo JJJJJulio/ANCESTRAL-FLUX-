@@ -28,6 +28,8 @@ let trailsOn = true;
 let paletteOffset = 0;
 let seedValue = 4242;
 let shapeImg = null;
+let controlsReady = false;
+let statusNode = null;
 
 
 function preload() {
@@ -100,6 +102,7 @@ function setup() {
   pg = createGraphics(windowWidth, windowHeight, P2D);
   reseed(seedValue);
   buildParticlesFromText();
+  setupControls();
 }
 
 function draw() {
@@ -143,6 +146,7 @@ function draw() {
 
   background(bg[0], bg[1], bg[2]);
   image(pg, 0, 0);
+  updateStatusReadout();
   drawMouseAura(glow, ink);
 }
 
@@ -282,14 +286,92 @@ function reseed(v = int(random(1e9))) {
 }
 
 function keyPressed() {
-  if (key >= '1' && key <= '5') mode = int(key);
-  if (key === 'p' || key === 'P') paletteOn = !paletteOn;
-  if (key === 'v' || key === 'V') linesOn = !linesOn;
-  if (key === 'g' || key === 'G') glowOn = !glowOn;
-  if (key === 't' || key === 'T') trailsOn = !trailsOn;
-  if (key === 'c' || key === 'C') paletteOffset = int(random(BAUHAUS.length));
-  if (key === 'r' || key === 'R') { reseed(); buildParticlesFromText(); }
+  if (key >= '1' && key <= '5') setMode(int(key));
+  if (key === 'p' || key === 'P') togglePalette();
+  if (key === 'v' || key === 'V') toggleLines();
+  if (key === 'g' || key === 'G') toggleGlow();
+  if (key === 't' || key === 'T') toggleTrails();
+  if (key === 'c' || key === 'C') randomizePaletteOffset();
+  if (key === 'r' || key === 'R') resetSeed();
 }
+
+function setMode(nextMode) {
+  mode = constrain(nextMode, 1, 5);
+}
+
+function togglePalette() {
+  paletteOn = !paletteOn;
+}
+
+function toggleLines() {
+  linesOn = !linesOn;
+}
+
+function toggleGlow() {
+  glowOn = !glowOn;
+}
+
+function toggleTrails() {
+  trailsOn = !trailsOn;
+}
+
+function randomizePaletteOffset() {
+  paletteOffset = int(random(BAUHAUS.length));
+}
+
+function resetSeed() {
+  reseed();
+  buildParticlesFromText();
+}
+
+function setupControls() {
+  if (controlsReady) return;
+  statusNode = document.getElementById('status-readout');
+  const actions = {
+    mode: (btn) => setMode(int(btn.dataset.mode)),
+    palette: togglePalette,
+    lines: toggleLines,
+    glow: toggleGlow,
+    trails: toggleTrails,
+    'palette-shift': randomizePaletteOffset,
+    reseed: resetSeed,
+  };
+
+  for (const btn of document.querySelectorAll('[data-action]')) {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      if (actions[action]) actions[action](btn);
+      updateStatusReadout(true);
+    });
+  }
+
+  controlsReady = true;
+  updateStatusReadout(true);
+}
+
+function updateStatusReadout(force = false) {
+  if (!controlsReady || !statusNode) return;
+  if (!force && frameCount % 8 !== 0) return;
+
+  for (const btn of document.querySelectorAll('[data-action="mode"]')) {
+    btn.classList.toggle('is-active', int(btn.dataset.mode) === mode);
+  }
+
+  const activeByAction = {
+    palette: paletteOn,
+    lines: linesOn,
+    glow: glowOn,
+    trails: trailsOn,
+  };
+
+  for (const [action, active] of Object.entries(activeByAction)) {
+    const btn = document.querySelector(`[data-action="${action}"]`);
+    if (btn) btn.classList.toggle('is-active', active);
+  }
+
+  statusNode.textContent = `Modo ${mode} · Paleta ${paletteOn ? 'ON' : 'OFF'} · Líneas ${linesOn ? 'ON' : 'OFF'} · Glow ${glowOn ? 'ON' : 'OFF'} · Trails ${trailsOn ? 'ON' : 'OFF'} · Seed ${seedValue}`;
+}
+
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
