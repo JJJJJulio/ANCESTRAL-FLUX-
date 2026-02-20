@@ -1,3 +1,5 @@
+window.__AF_SKETCH_READY__ = false;
+
 const CONFIG = {
   maxParticles: 2200,
   minParticles: 900,
@@ -118,6 +120,7 @@ class Particle {
 }
 
 function setup() {
+  window.__AF_SKETCH_READY__ = true;
   createCanvas(windowWidth, windowHeight, P2D);
   frameRate(CONFIG.targetFps);
 

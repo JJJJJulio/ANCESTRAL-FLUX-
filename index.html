@@ -5,8 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ANCESTRAL FLUX — Web</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
-  <script defer src="web-sketch.js"></script>
+  <script>
+    // Carga robusta de p5.js con fallback para evitar pantalla negra si falla un CDN.
+    (function () {
+      function loadScript(src, onOk, onErr) {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = onOk;
+        s.onerror = onErr;
+        document.head.appendChild(s);
+      }
+
+      function loadSketch() {
+        const sketch = document.createElement('script');
+        sketch.src = 'web-sketch.js';
+        sketch.defer = true;
+        document.head.appendChild(sketch);
+
+        window.setTimeout(() => {
+          if (!window.__AF_SKETCH_READY__) {
+            const node = document.getElementById('status-readout');
+            if (node) node.textContent = 'No se pudo iniciar el render. Revisa conexión/CDN.';
+          }
+        }, 4200);
+      }
+
+      loadScript(
+        'https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js',
+        loadSketch,
+        () => loadScript('https://unpkg.com/p5@1.9.4/lib/p5.min.js', loadSketch, () => {
+          const node = document.getElementById('status-readout');
+          if (node) node.textContent = 'Error cargando p5.js desde ambos CDNs.';
+        })
+      );
+    })();
+  </script>
 </head>
 <body>
   <aside class="ui" id="overlay-ui" aria-label="Panel de comandos">
