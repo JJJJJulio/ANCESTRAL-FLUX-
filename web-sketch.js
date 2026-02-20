@@ -34,6 +34,13 @@ let trailsOn = true;
 let paletteOffset = 0;
 let seedValue = 4242;
 let shapeImg = null;
+let controlsReady = false;
+let statusNode = null;
+let overlayNode = null;
+let uiVisible = true;
+
+// Layout del arte: centrado perfecto + escala automática con margen de seguridad (~10%).
+let artLayout = { x: 0, y: 0, w: 100, h: 100 };
 
 let targetParticleCap = CONFIG.maxParticles;
 let controlsReady = false;
@@ -192,6 +199,7 @@ function draw() {
 
   background(bg[0], bg[1], bg[2]);
   image(pg, 0, 0);
+  updateStatusReadout();
   drawMouseAura(glow, ink);
 
   updateUiAccent(glow);
