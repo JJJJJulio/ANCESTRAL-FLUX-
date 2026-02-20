@@ -48,6 +48,12 @@ let statusNode = null;
 let overlayNode = null;
 let uiVisible = true;
 
+let targetParticleCap = CONFIG.maxParticles;
+let controlsReady = false;
+let statusNode = null;
+let overlayNode = null;
+let uiVisible = true;
+
 // Centrado + escala responsive del motivo (margen de seguridad 10%).
 let artLayout = { x: 0, y: 0, w: 100, h: 100 };
 

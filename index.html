@@ -3,11 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>ANCESTRAL FLUX — Web</title>
-  <link rel="stylesheet" href="styles.css" />
+  <!-- cache-busting para forzar refresco en GitHub Pages/CDN -->
+  <link rel="stylesheet" href="styles.css?v=20260220-2" />
   <script>
-    // Carga robusta de p5.js con fallback para evitar pantalla negra si falla un CDN.
     (function () {
+      const ASSET_VERSION = '20260220-2';
+
       function loadScript(src, onOk, onErr) {
         const s = document.createElement('script');
         s.src = src;
@@ -16,16 +21,20 @@
         document.head.appendChild(s);
       }
 
+      function showStatus(text) {
+        const node = document.getElementById('status-readout');
+        if (node) node.textContent = text;
+      }
+
       function loadSketch() {
         const sketch = document.createElement('script');
-        sketch.src = 'web-sketch.js';
+        sketch.src = `web-sketch.js?v=${ASSET_VERSION}`;
         sketch.defer = true;
         document.head.appendChild(sketch);
 
         window.setTimeout(() => {
           if (!window.__AF_SKETCH_READY__) {
-            const node = document.getElementById('status-readout');
-            if (node) node.textContent = 'No se pudo iniciar el render. Revisa conexión/CDN.';
+            showStatus('No se pudo iniciar el render. Revisa conexión/CDN o limpia caché.');
           }
         }, 4200);
       }
@@ -34,8 +43,7 @@
         'https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js',
         loadSketch,
         () => loadScript('https://unpkg.com/p5@1.9.4/lib/p5.min.js', loadSketch, () => {
-          const node = document.getElementById('status-readout');
-          if (node) node.textContent = 'Error cargando p5.js desde ambos CDNs.';
+          showStatus('Error cargando p5.js desde ambos CDNs.');
         })
       );
     })();
@@ -58,7 +66,7 @@
       <li><kbd>H</kbd> hide/show UI</li>
     </ul>
 
-    <p class="status" id="status-readout" aria-live="polite"></p>
+    <p class="status" id="status-readout" aria-live="polite">build 20260220-2</p>
   </aside>
 </body>
 </html>
