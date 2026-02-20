@@ -9,10 +9,10 @@
   <script defer src="web-sketch.js"></script>
 </head>
 <body>
-  <main class="ui">
+  <main class="ui" id="overlay-ui">
     <h1>ANCESTRAL FLUX</h1>
     <p>
-      Interacción protagónica del mouse: mueve el cursor para deformar,
+      Mouse protagonista: mueve el cursor para deformar,
       mantén click para crear vórtices intensos.
     </p>
     <ul>
@@ -22,16 +22,17 @@
       <li><kbd>G</kbd> glow</li>
       <li><kbd>T</kbd> trails</li>
       <li><kbd>R</kbd> reseed</li>
-      <li><kbd>C</kbd> cambiar paleta</li>
+      <li><kbd>C</kbd> variar paleta</li>
+      <li><kbd>H</kbd> ocultar/mostrar UI</li>
     </ul>
 
     <section class="controls" aria-label="Controles táctiles">
       <div class="control-row">
-        <button type="button" data-action="mode" data-mode="1">Modo 1</button>
-        <button type="button" data-action="mode" data-mode="2">Modo 2</button>
-        <button type="button" data-action="mode" data-mode="3">Modo 3</button>
-        <button type="button" data-action="mode" data-mode="4">Modo 4</button>
-        <button type="button" data-action="mode" data-mode="5">Modo 5</button>
+        <button type="button" data-action="mode" data-mode="1">1</button>
+        <button type="button" data-action="mode" data-mode="2">2</button>
+        <button type="button" data-action="mode" data-mode="3">3</button>
+        <button type="button" data-action="mode" data-mode="4">4</button>
+        <button type="button" data-action="mode" data-mode="5">5</button>
       </div>
       <div class="control-row">
         <button type="button" data-action="palette">Paleta</button>
@@ -40,8 +41,8 @@
         <button type="button" data-action="trails">Trails</button>
       </div>
       <div class="control-row">
-        <button type="button" data-action="palette-shift">Variar color</button>
-        <button type="button" data-action="reseed">Reseed</button>
+        <button type="button" data-action="palette-shift">Color</button>
+        <button type="button" data-action="reseed">Seed</button>
       </div>
     </section>
 
