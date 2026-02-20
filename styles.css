@@ -97,6 +97,39 @@ canvas {
   opacity: 0.84;
 }
 
+.controls {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.controls button {
+  border: 1px solid #ffffff42;
+  background: #101010cc;
+  color: #f2f2f2;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.controls button.is-active {
+  border-color: #f1fa3c;
+  color: #f1fa3c;
+}
+
+.status {
+  margin: 10px 0 0;
+  font-size: 11px;
+  opacity: 0.88;
+}
+
 kbd {
   border: 1px solid #ffffff4d;
   border-bottom-width: 2px;
