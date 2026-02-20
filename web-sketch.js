@@ -1,12 +1,14 @@
 const CONFIG = {
   maxParticles: 2200,
+  minParticles: 900,
   step: 12,
   linkDistance: 30,
   linkCapPerParticle: 3,
-  maxSegments: 2400,
+  maxSegments: 2200,
   attraction: 0.028,
   damping: 0.89,
   noiseGain: 2.9,
+  targetFps: 60,
 };
 
 const BAUHAUS = [
@@ -18,8 +20,10 @@ const BAUHAUS = [
 ];
 
 let particles = [];
+let sourceHomes = [];
 let links = [];
 let pg;
+
 let mode = 2;
 let glowOn = true;
 let linesOn = true;
@@ -29,6 +33,14 @@ let paletteOffset = 0;
 let seedValue = 4242;
 let shapeImg = null;
 
+let targetParticleCap = CONFIG.maxParticles;
+let controlsReady = false;
+let statusNode = null;
+let overlayNode = null;
+let uiVisible = true;
+
+// Centrado + escala responsive del motivo (margen de seguridad 10%).
+let artLayout = { x: 0, y: 0, w: 100, h: 100 };
 
 function preload() {
   shapeImg = loadImage(
@@ -39,10 +51,14 @@ function preload() {
 }
 
 class Particle {
-  constructor(home) {
+  constructor(home, tier) {
     this.home = home.copy();
     this.pos = createVector(random(width), random(height));
     this.vel = createVector(0, 0);
+    this.tier = tier; // 0 small, 1 medium, 2 large
+    this.baseWeight = tier === 2 ? 1.35 : tier === 1 ? 0.95 : 0.62;
+    this.updateStride = tier === 2 ? 1 : tier === 1 ? 2 : 3;
+    this._glowMult = 1;
   }
 
   update(profile, t) {
@@ -60,7 +76,6 @@ class Particle {
       ny -= tw * 0.55;
     }
 
-    // Mouse super protagónico: mezcla atracción + giro + repulsión según click.
     const dxm = this.pos.x - mouseX;
     const dym = this.pos.y - mouseY;
     const d2 = dxm * dxm + dym * dym + 1;
@@ -97,9 +112,15 @@ class Particle {
 
 function setup() {
   createCanvas(windowWidth, windowHeight, P2D);
+  frameRate(CONFIG.targetFps);
+
   pg = createGraphics(windowWidth, windowHeight, P2D);
+  recomputeArtLayout();
   reseed(seedValue);
   buildParticlesFromText();
+  setupControls();
+
+  window.addEventListener("resize", handleResize);
 }
 
 function draw() {
@@ -111,11 +132,26 @@ function draw() {
   pg.rect(0, 0, width, height);
 
   const profile = modeProfile(mode);
-  for (const p of particles) p.update(profile, t);
+  const mouseGlowRange2 = (min(width, height) * 0.23) ** 2;
+
+  for (const p of particles) {
+    const speed2 = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
+    const dxm = p.pos.x - mouseX;
+    const dym = p.pos.y - mouseY;
+    const md2 = dxm * dxm + dym * dym;
+
+    // Conditional update: partículas lentas y pequeñas se actualizan con menor frecuencia.
+    const shouldUpdate = frameCount % p.updateStride === 0 || speed2 > 0.3 || md2 < mouseGlowRange2;
+    if (shouldUpdate) {
+      p.update(profile, t);
+    } else {
+      p.vel.mult(0.992);
+    }
+  }
 
   if (linesOn) {
     rebuildLinks();
-    pg.strokeWeight(0.65);
+    pg.strokeWeight(0.62);
     for (const s of links) {
       pg.stroke(ink[0], ink[1], ink[2], s[4]);
       pg.line(s[0], s[1], s[2], s[3]);
@@ -124,26 +160,40 @@ function draw() {
 
   for (const p of particles) {
     const speed = p.vel.mag();
-    const sw = constrain(0.55 + speed * 0.95, 0.55, 4.2);
 
-    if (glowOn) {
-      pg.strokeWeight(sw + 6.5 * p._glowMult);
-      pg.stroke(glow[0], glow[1], glow[2], 14);
+    // Skip draw de parte de partículas diminutas muy lentas para mejorar FPS.
+    if (p.tier === 0 && speed < 0.14 && frameCount % 2 !== 0) continue;
+
+    const sw = constrain(p.baseWeight + speed * 0.88, 0.45, 4.1);
+    const dxm = p.pos.x - mouseX;
+    const dym = p.pos.y - mouseY;
+    const md2 = dxm * dxm + dym * dym;
+
+    // Glow condicional: reducción de capas cuando están lejos del mouse.
+    if (glowOn && (md2 < mouseGlowRange2 || speed > 0.72 || p.tier > 0)) {
+      pg.strokeWeight(sw + 3.8 * p._glowMult);
+      pg.stroke(glow[0], glow[1], glow[2], 18);
       pg.point(p.pos.x, p.pos.y);
 
-      pg.strokeWeight(sw + 3.6 * p._glowMult);
-      pg.stroke(glow[0], glow[1], glow[2], 26);
-      pg.point(p.pos.x, p.pos.y);
+      if (md2 < mouseGlowRange2 * 0.6 || p.tier > 0) {
+        pg.strokeWeight(sw + 6.1 * p._glowMult);
+        pg.stroke(glow[0], glow[1], glow[2], 12);
+        pg.point(p.pos.x, p.pos.y);
+      }
     }
 
     pg.strokeWeight(sw);
-    pg.stroke(ink[0], ink[1], ink[2], constrain(120 + speed * 80, 95, 245));
+    pg.stroke(ink[0], ink[1], ink[2], constrain(118 + speed * 86, 92, 240));
     pg.point(p.pos.x, p.pos.y);
   }
 
   background(bg[0], bg[1], bg[2]);
   image(pg, 0, 0);
   drawMouseAura(glow, ink);
+
+  updateUiAccent(glow);
+  updateAdaptiveBudget();
+  updateStatusReadout();
 }
 
 function drawMouseAura(glow, ink) {
@@ -189,6 +239,7 @@ function modeProfile(m) {
 function rebuildLinks() {
   if (frameCount % 2 !== 0 && links.length) return;
   links = [];
+
   const cell = CONFIG.linkDistance + 12;
   const grid = new Map();
 
@@ -202,6 +253,7 @@ function rebuildLinks() {
 
   let total = 0;
   const d2max = CONFIG.linkDistance * CONFIG.linkDistance;
+  const segmentBudget = min(CONFIG.maxSegments, int(particles.length * 1.05));
 
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
@@ -213,24 +265,27 @@ function rebuildLinks() {
       for (let ox = -1; ox <= 1; ox++) {
         const key = `${cx + ox}:${cy + oy}`;
         if (!grid.has(key)) continue;
+
         for (const j of grid.get(key)) {
           if (j <= i) continue;
           const q = particles[j];
           const dx = q.pos.x - p.pos.x;
           const dy = q.pos.y - p.pos.y;
           const d2 = dx * dx + dy * dy;
+
           if (d2 < d2max) {
             const d = sqrt(d2);
-            const a = int(map(d, 0, CONFIG.linkDistance, 64, 0));
+            const a = int(map(d, 0, CONFIG.linkDistance, 62, 0));
             if (a > 0) {
               links.push([p.pos.x, p.pos.y, q.pos.x, q.pos.y, a]);
               total++;
               local++;
-              if (total >= CONFIG.maxSegments) return;
+              if (total >= segmentBudget) return;
               if (local >= CONFIG.linkCapPerParticle) break;
             }
           }
         }
+
         if (local >= CONFIG.linkCapPerParticle) break;
       }
       if (local >= CONFIG.linkCapPerParticle) break;
@@ -239,25 +294,24 @@ function rebuildLinks() {
 }
 
 function buildParticlesFromText() {
-  particles = [];
   const stamp = createGraphics(width, height, P2D);
   stamp.pixelDensity(1);
   stamp.background(0, 0);
   stamp.noStroke();
   stamp.fill(255);
 
+  // Escala automática basada en min(windowWidth, windowHeight) + centrado en ambas coordenadas.
+  const { x: areaX, y: areaY, w: areaW, h: areaH } = artLayout;
+
   if (shapeImg && shapeImg.width > 0 && shapeImg.height > 0) {
-    const pad = min(width, height) * 0.12;
-    const availW = width - pad * 2;
-    const availH = height - pad * 2;
-    const s = min(availW / shapeImg.width, availH / shapeImg.height);
+    const s = min(areaW / shapeImg.width, areaH / shapeImg.height);
     const tw = shapeImg.width * s;
     const th = shapeImg.height * s;
-    stamp.image(shapeImg, (width - tw) * 0.5, (height - th) * 0.5, tw, th);
+    stamp.image(shapeImg, areaX + (areaW - tw) * 0.5, areaY + (areaH - th) * 0.5, tw, th);
   } else {
     stamp.textAlign(CENTER, CENTER);
-    stamp.textSize(min(width, height) * 0.25);
-    stamp.text("CHAKANA", width * 0.5, height * 0.5);
+    stamp.textSize(areaH * 0.25);
+    stamp.text("CHAKANA", areaX + areaW * 0.5, areaY + areaH * 0.5);
   }
 
   stamp.loadPixels();
@@ -270,9 +324,45 @@ function buildParticlesFromText() {
     }
   }
 
+  sourceHomes = homes;
+  rebuildParticlesFromHomes();
+}
+
+function rebuildParticlesFromHomes() {
+  if (!sourceHomes.length) {
+    particles = [];
+    return;
+  }
+
+  const homes = sourceHomes.slice();
   shuffle(homes, true);
-  homes.length = min(homes.length, CONFIG.maxParticles);
-  particles = homes.map(h => new Particle(h));
+
+  const cap = min(homes.length, int(targetParticleCap));
+  homes.length = cap;
+
+  particles = homes.map((h, idx) => {
+    const u = idx / max(1, cap - 1);
+    const tier = u < 0.7 ? 0 : u < 0.95 ? 1 : 2; // 70% / 25% / 5%
+    return new Particle(h, tier);
+  });
+}
+
+function updateAdaptiveBudget() {
+  if (frameCount % 30 !== 0) return;
+
+  const fps = frameRate();
+  if (fps < 48 && targetParticleCap > CONFIG.minParticles) {
+    targetParticleCap = max(CONFIG.minParticles, targetParticleCap - 120);
+    rebuildParticlesFromHomes();
+  } else if (fps > 58 && targetParticleCap < CONFIG.maxParticles) {
+    targetParticleCap = min(CONFIG.maxParticles, targetParticleCap + 80);
+    rebuildParticlesFromHomes();
+  }
+}
+
+function updateUiAccent(glow) {
+  if (frameCount % 8 !== 0) return;
+  document.documentElement.style.setProperty("--ui-accent", `${glow[0]}, ${glow[1]}, ${glow[2]}`);
 }
 
 function reseed(v = int(random(1e9))) {
@@ -282,17 +372,80 @@ function reseed(v = int(random(1e9))) {
 }
 
 function keyPressed() {
-  if (key >= '1' && key <= '5') mode = int(key);
-  if (key === 'p' || key === 'P') paletteOn = !paletteOn;
-  if (key === 'v' || key === 'V') linesOn = !linesOn;
-  if (key === 'g' || key === 'G') glowOn = !glowOn;
-  if (key === 't' || key === 'T') trailsOn = !trailsOn;
-  if (key === 'c' || key === 'C') paletteOffset = int(random(BAUHAUS.length));
-  if (key === 'r' || key === 'R') { reseed(); buildParticlesFromText(); }
+  if (key >= '1' && key <= '5') setMode(int(key));
+  if (key === 'p' || key === 'P') togglePalette();
+  if (key === 'v' || key === 'V') toggleLines();
+  if (key === 'g' || key === 'G') toggleGlow();
+  if (key === 't' || key === 'T') toggleTrails();
+  if (key === 'c' || key === 'C') randomizePaletteOffset();
+  if (key === 'r' || key === 'R') resetSeed();
+  if (key === 'h' || key === 'H') toggleUiOverlay();
+}
+
+function setMode(nextMode) {
+  mode = constrain(nextMode, 1, 5);
+}
+
+function togglePalette() {
+  paletteOn = !paletteOn;
+}
+
+function toggleLines() {
+  linesOn = !linesOn;
+}
+
+function toggleGlow() {
+  glowOn = !glowOn;
+}
+
+function toggleTrails() {
+  trailsOn = !trailsOn;
+}
+
+function randomizePaletteOffset() {
+  paletteOffset = int(random(BAUHAUS.length));
+}
+
+function resetSeed() {
+  reseed();
+  buildParticlesFromText();
+}
+
+function toggleUiOverlay() {
+  uiVisible = !uiVisible;
+  if (overlayNode) overlayNode.classList.toggle('is-hidden', !uiVisible);
+}
+
+function setupControls() {
+  if (controlsReady) return;
+  statusNode = document.getElementById('status-readout');
+  overlayNode = document.getElementById('overlay-ui');
+  controlsReady = true;
+  updateStatusReadout(true);
+}
+
+function updateStatusReadout(force = false) {
+  if (!controlsReady || !statusNode) return;
+  if (!force && frameCount % 12 !== 0) return;
+
+  statusNode.textContent = `mode ${mode} · particles ${particles.length} · fps ${frameRate().toFixed(0)} · ui ${uiVisible ? 'on' : 'off'}`;
+}
+
+function recomputeArtLayout() {
+  const safeSide = min(windowWidth, windowHeight) * 0.9;
+  artLayout.w = safeSide;
+  artLayout.h = safeSide;
+  artLayout.x = (windowWidth - safeSide) * 0.5;
+  artLayout.y = (windowHeight - safeSide) * 0.5;
+}
+
+function handleResize() {
+  resizeCanvas(windowWidth, windowHeight);
+  pg = createGraphics(windowWidth, windowHeight, P2D);
+  recomputeArtLayout();
+  buildParticlesFromText();
 }
 
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  pg = createGraphics(windowWidth, windowHeight, P2D);
-  buildParticlesFromText();
+  handleResize();
 }
