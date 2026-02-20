@@ -1,468 +1,536 @@
-window.__AF_SKETCH_READY__ = false;
+(() => {
+  window.__AF_SKETCH_READY__ = false;
 
-const CONFIG = {
-  maxParticles: 2200,
-  minParticles: 900,
-  step: 12,
-  linkDistance: 30,
-  linkCapPerParticle: 3,
-  maxSegments: 2200,
-  attraction: 0.028,
-  damping: 0.89,
-  noiseGain: 2.9,
-  targetFps: 60,
-};
+  const CFG = {
+    step: 5,
+    maxPoints: 8000,
+    alphaThreshold: 32,
+    baseReturn: 0.085,
+    mouseRadius: 34,
+    padRatio: 0.08,
+    linksMaxDist: 7.5,
+    maxLinks: 1600,
+  };
 
-const BAUHAUS = [
-  [[245, 245, 245], [0, 0, 0], [230, 57, 70]],
-  [[0, 0, 0], [245, 245, 245], [69, 123, 157]],
-  [[130, 130, 130], [245, 245, 245], [241, 250, 60]],
-  [[245, 245, 245], [69, 123, 157], [230, 57, 70]],
-  [[0, 0, 0], [241, 250, 60], [230, 57, 70]],
-];
-
-let particles = [];
-let sourceHomes = [];
-let links = [];
-let pg;
-
-let mode = 2;
-let glowOn = true;
-let linesOn = true;
-let paletteOn = true;
-let trailsOn = true;
-let paletteOffset = 0;
-let seedValue = 4242;
-let shapeImg = null;
-let controlsReady = false;
-let statusNode = null;
-let overlayNode = null;
-let uiVisible = true;
-
-// Layout del arte: centrado perfecto + escala automática con margen de seguridad (~10%).
-let artLayout = { x: 0, y: 0, w: 100, h: 100 };
-
-let targetParticleCap = CONFIG.maxParticles;
-let controlsReady = false;
-let statusNode = null;
-let overlayNode = null;
-let uiVisible = true;
-
-let targetParticleCap = CONFIG.maxParticles;
-let controlsReady = false;
-let statusNode = null;
-let overlayNode = null;
-let uiVisible = true;
-
-// Centrado + escala responsive del motivo (margen de seguridad 10%).
-let artLayout = { x: 0, y: 0, w: 100, h: 100 };
-
-function preload() {
-  shapeImg = loadImage(
-    "shape.png",
-    () => {},
-    () => { shapeImg = null; }
-  );
-}
-
-class Particle {
-  constructor(home, tier) {
-    this.home = home.copy();
-    this.pos = createVector(random(width), random(height));
-    this.vel = createVector(0, 0);
-    this.tier = tier; // 0 small, 1 medium, 2 large
-    this.baseWeight = tier === 2 ? 1.35 : tier === 1 ? 0.95 : 0.62;
-    this.updateStride = tier === 2 ? 1 : tier === 1 ? 2 : 3;
-    this._glowMult = 1;
-  }
-
-  update(profile, t) {
-    let [stability, noiseMult, glowMult, attractMult, dampMult, speedMult] = profile;
-
-    let fx = (this.home.x - this.pos.x) * (CONFIG.attraction * attractMult * stability);
-    let fy = (this.home.y - this.pos.y) * (CONFIG.attraction * attractMult * stability);
-
-    let nx = (noise(this.pos.x * 0.008, this.pos.y * 0.008, t * 0.3) - 0.5) * CONFIG.noiseGain * noiseMult * (1 - stability);
-    let ny = (noise(this.pos.y * 0.008, this.pos.x * 0.008, t * 0.3 + 9) - 0.5) * CONFIG.noiseGain * noiseMult * (1 - stability);
-
-    if (mode === 5) {
-      const tw = (noise(this.pos.x * 0.02, this.pos.y * 0.02, t * 1.6) - 0.5) * 2.3;
-      nx += tw * 0.7;
-      ny -= tw * 0.55;
-    }
-
-    const dxm = this.pos.x - mouseX;
-    const dym = this.pos.y - mouseY;
-    const d2 = dxm * dxm + dym * dym + 1;
-    if (d2 < (min(width, height) * 0.55) ** 2) {
-      const inv = 1 / sqrt(d2);
-      const dirx = dxm * inv;
-      const diry = dym * inv;
-      const tangx = -diry;
-      const tangy = dirx;
-
-      const pressure = mouseIsPressed ? 2.5 : 1.0;
-      const attract = mouseIsPressed ? -380 / d2 : -130 / d2;
-      const spin = mouseIsPressed ? 260 / d2 : 110 / d2;
-
-      fx += (dirx * attract + tangx * spin) * pressure;
-      fy += (diry * attract + tangy * spin) * pressure;
-    }
-
-    const damp = constrain(CONFIG.damping * dampMult, 0.74, 0.96);
-    this.vel.x = (this.vel.x + fx + nx) * damp;
-    this.vel.y = (this.vel.y + fy + ny) * damp;
-
-    this.pos.x += this.vel.x * speedMult;
-    this.pos.y += this.vel.y * speedMult;
-
-    if (this.pos.x < -20) this.pos.x = width + 20;
-    if (this.pos.x > width + 20) this.pos.x = -20;
-    if (this.pos.y < -20) this.pos.y = height + 20;
-    if (this.pos.y > height + 20) this.pos.y = -20;
-
-    this._glowMult = glowMult;
-  }
-}
-
-function setup() {
-  window.__AF_SKETCH_READY__ = true;
-  createCanvas(windowWidth, windowHeight, P2D);
-  frameRate(CONFIG.targetFps);
-
-  pg = createGraphics(windowWidth, windowHeight, P2D);
-  recomputeArtLayout();
-  reseed(seedValue);
-  buildParticlesFromText();
-  setupControls();
-
-  window.addEventListener("resize", handleResize);
-}
-
-function draw() {
-  const t = (frameCount % 3000) / 3000 * TWO_PI;
-  const [bg, ink, glow] = paletteNow(t);
-
-  pg.noStroke();
-  pg.fill(bg[0], bg[1], bg[2], trailsOn ? 18 : 255);
-  pg.rect(0, 0, width, height);
-
-  const profile = modeProfile(mode);
-  const mouseGlowRange2 = (min(width, height) * 0.23) ** 2;
-
-  for (const p of particles) {
-    const speed2 = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
-    const dxm = p.pos.x - mouseX;
-    const dym = p.pos.y - mouseY;
-    const md2 = dxm * dxm + dym * dym;
-
-    // Conditional update: partículas lentas y pequeñas se actualizan con menor frecuencia.
-    const shouldUpdate = frameCount % p.updateStride === 0 || speed2 > 0.3 || md2 < mouseGlowRange2;
-    if (shouldUpdate) {
-      p.update(profile, t);
-    } else {
-      p.vel.mult(0.992);
-    }
-  }
-
-  if (linesOn) {
-    rebuildLinks();
-    pg.strokeWeight(0.62);
-    for (const s of links) {
-      pg.stroke(ink[0], ink[1], ink[2], s[4]);
-      pg.line(s[0], s[1], s[2], s[3]);
-    }
-  }
-
-  for (const p of particles) {
-    const speed = p.vel.mag();
-
-    // Skip draw de parte de partículas diminutas muy lentas para mejorar FPS.
-    if (p.tier === 0 && speed < 0.14 && frameCount % 2 !== 0) continue;
-
-    const sw = constrain(p.baseWeight + speed * 0.88, 0.45, 4.1);
-    const dxm = p.pos.x - mouseX;
-    const dym = p.pos.y - mouseY;
-    const md2 = dxm * dxm + dym * dym;
-
-    // Glow condicional: reducción de capas cuando están lejos del mouse.
-    if (glowOn && (md2 < mouseGlowRange2 || speed > 0.72 || p.tier > 0)) {
-      pg.strokeWeight(sw + 3.8 * p._glowMult);
-      pg.stroke(glow[0], glow[1], glow[2], 18);
-      pg.point(p.pos.x, p.pos.y);
-
-      if (md2 < mouseGlowRange2 * 0.6 || p.tier > 0) {
-        pg.strokeWeight(sw + 6.1 * p._glowMult);
-        pg.stroke(glow[0], glow[1], glow[2], 12);
-        pg.point(p.pos.x, p.pos.y);
-      }
-    }
-
-    pg.strokeWeight(sw);
-    pg.stroke(ink[0], ink[1], ink[2], constrain(118 + speed * 86, 92, 240));
-    pg.point(p.pos.x, p.pos.y);
-  }
-
-  background(bg[0], bg[1], bg[2]);
-  image(pg, 0, 0);
-  updateStatusReadout();
-  drawMouseAura(glow, ink);
-
-  updateUiAccent(glow);
-  updateAdaptiveBudget();
-  updateStatusReadout();
-}
-
-function drawMouseAura(glow, ink) {
-  noFill();
-  const pul = 12 + sin(frameCount * 0.2) * 4;
-  stroke(glow[0], glow[1], glow[2], mouseIsPressed ? 190 : 110);
-  strokeWeight(mouseIsPressed ? 2.8 : 1.4);
-  circle(mouseX, mouseY, (mouseIsPressed ? 130 : 78) + pul);
-
-  stroke(ink[0], ink[1], ink[2], 85);
-  strokeWeight(1);
-  circle(mouseX, mouseY, 12 + pul * 0.25);
-}
-
-function paletteNow(t) {
-  if (!paletteOn) return BAUHAUS[(paletteOffset + mode - 1) % BAUHAUS.length];
-  const n = BAUHAUS.length;
-  const cyc = (sin(t * 0.44) * 0.5 + 0.5) * (n - 0.001);
-  const i0 = (floor(cyc) + paletteOffset) % n;
-  const i1 = (i0 + 1) % n;
-  const u = cyc - floor(cyc);
-
-  const p0 = BAUHAUS[i0], p1 = BAUHAUS[i1];
-  return [
-    lerpColor3(p0[0], p1[0], u),
-    lerpColor3(p0[1], p1[1], u),
-    lerpColor3(p0[2], p1[2], u)
+  const BAUHAUS = [
+    [[245, 245, 245], [8, 8, 10], [230, 57, 70]],
+    [[8, 8, 10], [245, 245, 245], [69, 123, 157]],
+    [[222, 222, 222], [12, 12, 14], [241, 250, 60]],
+    [[245, 245, 245], [69, 123, 157], [230, 57, 70]],
+    [[15, 15, 20], [241, 250, 60], [230, 57, 70]],
   ];
-}
 
-function lerpColor3(a, b, u) {
-  return [int(lerp(a[0], b[0], u)), int(lerp(a[1], b[1], u)), int(lerp(a[2], b[2], u))];
-}
+  const FORCE_PROCEDURAL_MASK = true;
 
-function modeProfile(m) {
-  if (m === 1) return [0.88, 0.55, 0.7, 1.0, 1.0, 1.0];
-  if (m === 2) return [0.58, 1.0, 1.0, 1.0, 1.0, 1.04];
-  if (m === 3) return [0.33, 1.42, 1.35, 0.92, 0.97, 1.1];
-  if (m === 4) return [0.22, 1.95, 1.35, 0.58, 1.02, 1.16];
-  return [0.12, 2.55, 1.55, 0.42, 0.93, 1.36];
-}
+  const MODES = {
+    1: { swirl: 0.28, jitter: 0.06, speed: 0.94 },
+    2: { swirl: 0.65, jitter: 0.11, speed: 1.0 },
+    3: { swirl: 1.0, jitter: 0.17, speed: 1.05 },
+    4: { swirl: 1.5, jitter: 0.24, speed: 1.12 },
+    5: { swirl: 2.1, jitter: 0.32, speed: 1.2 },
+  };
 
-function rebuildLinks() {
-  if (frameCount % 2 !== 0 && links.length) return;
-  links = [];
+  const canvas = document.getElementById('flux-canvas');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const overlay = document.getElementById('overlay-ui');
+  const statusNode = document.getElementById('status-readout');
 
-  const cell = CONFIG.linkDistance + 12;
-  const grid = new Map();
+  let w = 0;
+  let h = 0;
+  let dpr = 1;
+  let mode = 2;
+  let source = 'boot';
+  let errorText = '';
+  let uiVisible = true;
+  let glowOn = true;
+  let linesOn = true;
+  let trailsOn = true;
+  let linksOn = true;
+  let paletteOn = true;
+  let paletteShift = 0;
+  let seed = 4242;
+  let noiseSeed = seed;
 
-  particles.forEach((p, i) => {
-    const cx = floor(p.pos.x / cell);
-    const cy = floor(p.pos.y / cell);
-    const key = `${cx}:${cy}`;
-    if (!grid.has(key)) grid.set(key, []);
-    grid.get(key).push(i);
-  });
+  let points = [];
+  let maskData = null;
+  let maskW = 0;
+  let maskH = 0;
+  let bbox = { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 };
+  let fit = { scale: 1, offsetX: 0, offsetY: 0 };
 
-  let total = 0;
-  const d2max = CONFIG.linkDistance * CONFIG.linkDistance;
-  const segmentBudget = min(CONFIG.maxSegments, int(particles.length * 1.05));
+  let mouse = { x: -1e6, y: -1e6, down: false };
+  let fps = 0;
+  let fpsFrames = 0;
+  let fpsLast = performance.now();
 
-  for (let i = 0; i < particles.length; i++) {
-    const p = particles[i];
-    const cx = floor(p.pos.x / cell);
-    const cy = floor(p.pos.y / cell);
-    let local = 0;
+  class Particle {
+    constructor(x, y, tier, rand) {
+      this.homeX = x;
+      this.homeY = y;
+      this.x = x + (rand() - 0.5) * 18;
+      this.y = y + (rand() - 0.5) * 18;
+      this.px = this.x;
+      this.py = this.y;
+      this.vx = 0;
+      this.vy = 0;
+      this.tier = tier;
+      this.baseSize = tier === 0 ? 0.8 : tier === 1 ? 1.2 : 1.8;
+      this.drag = tier === 0 ? 0.9 : tier === 1 ? 0.875 : 0.84;
+    }
 
-    for (let oy = -1; oy <= 1; oy++) {
-      for (let ox = -1; ox <= 1; ox++) {
-        const key = `${cx + ox}:${cy + oy}`;
-        if (!grid.has(key)) continue;
+    update(t, profile, mx, my) {
+      this.px = this.x;
+      this.py = this.y;
 
-        for (const j of grid.get(key)) {
-          if (j <= i) continue;
-          const q = particles[j];
-          const dx = q.pos.x - p.pos.x;
-          const dy = q.pos.y - p.pos.y;
-          const d2 = dx * dx + dy * dy;
+      const homeDx = this.homeX - this.x;
+      const homeDy = this.homeY - this.y;
+      this.vx += homeDx * CFG.baseReturn * profile.speed;
+      this.vy += homeDy * CFG.baseReturn * profile.speed;
 
-          if (d2 < d2max) {
-            const d = sqrt(d2);
-            const a = int(map(d, 0, CONFIG.linkDistance, 62, 0));
-            if (a > 0) {
-              links.push([p.pos.x, p.pos.y, q.pos.x, q.pos.y, a]);
-              total++;
-              local++;
-              if (total >= segmentBudget) return;
-              if (local >= CONFIG.linkCapPerParticle) break;
-            }
-          }
+      const n = noise2(this.x * 0.021, this.y * 0.021, t, noiseSeed);
+      const ang = n * Math.PI * 2;
+      this.vx += Math.cos(ang) * profile.jitter;
+      this.vy += Math.sin(ang) * profile.jitter;
+
+      const dxm = this.x - mx;
+      const dym = this.y - my;
+      const d2 = dxm * dxm + dym * dym;
+      const rr = CFG.mouseRadius * CFG.mouseRadius;
+      if (d2 < rr) {
+        const inv = 1 / Math.sqrt(d2 + 1e-3);
+        const nx = dxm * inv;
+        const ny = dym * inv;
+        const tx = -ny;
+        const ty = nx;
+        const falloff = 1 - d2 / rr;
+        const swirl = profile.swirl * falloff;
+        this.vx += tx * swirl;
+        this.vy += ty * swirl;
+        if (mouse.down) {
+          this.vx -= nx * 0.7 * falloff;
+          this.vy -= ny * 0.7 * falloff;
         }
-
-        if (local >= CONFIG.linkCapPerParticle) break;
       }
-      if (local >= CONFIG.linkCapPerParticle) break;
-    }
-  }
-}
 
-function buildParticlesFromText() {
-  const stamp = createGraphics(width, height, P2D);
-  stamp.pixelDensity(1);
-  stamp.background(0, 0);
-  stamp.noStroke();
-  stamp.fill(255);
-
-  // Escala automática basada en min(windowWidth, windowHeight) + centrado en ambas coordenadas.
-  const { x: areaX, y: areaY, w: areaW, h: areaH } = artLayout;
-
-  if (shapeImg && shapeImg.width > 0 && shapeImg.height > 0) {
-    const s = min(areaW / shapeImg.width, areaH / shapeImg.height);
-    const tw = shapeImg.width * s;
-    const th = shapeImg.height * s;
-    stamp.image(shapeImg, areaX + (areaW - tw) * 0.5, areaY + (areaH - th) * 0.5, tw, th);
-  } else {
-    stamp.textAlign(CENTER, CENTER);
-    stamp.textSize(areaH * 0.25);
-    stamp.text("CHAKANA", areaX + areaW * 0.5, areaY + areaH * 0.5);
-  }
-
-  stamp.loadPixels();
-  const homes = [];
-  for (let y = 0; y < height; y += CONFIG.step) {
-    for (let x = 0; x < width; x += CONFIG.step) {
-      const idx = 4 * (x + y * width);
-      const a = stamp.pixels[idx + 3];
-      if (a > 40) homes.push(createVector(x, y));
+      this.vx *= this.drag;
+      this.vy *= this.drag;
+      this.x += this.vx;
+      this.y += this.vy;
     }
   }
 
-  sourceHomes = homes;
-  rebuildParticlesFromHomes();
-}
-
-function rebuildParticlesFromHomes() {
-  if (!sourceHomes.length) {
-    particles = [];
-    return;
+  function log(msg, payload) {
+    if (payload !== undefined) console.log(`[AF] ${msg}`, payload);
+    else console.log(`[AF] ${msg}`);
   }
 
-  const homes = sourceHomes.slice();
-  shuffle(homes, true);
-
-  const cap = min(homes.length, int(targetParticleCap));
-  homes.length = cap;
-
-  particles = homes.map((h, idx) => {
-    const u = idx / max(1, cap - 1);
-    const tier = u < 0.7 ? 0 : u < 0.95 ? 1 : 2; // 70% / 25% / 5%
-    return new Particle(h, tier);
-  });
-}
-
-function updateAdaptiveBudget() {
-  if (frameCount % 30 !== 0) return;
-
-  const fps = frameRate();
-  if (fps < 48 && targetParticleCap > CONFIG.minParticles) {
-    targetParticleCap = max(CONFIG.minParticles, targetParticleCap - 120);
-    rebuildParticlesFromHomes();
-  } else if (fps > 58 && targetParticleCap < CONFIG.maxParticles) {
-    targetParticleCap = min(CONFIG.maxParticles, targetParticleCap + 80);
-    rebuildParticlesFromHomes();
+  function reseed() {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    noiseSeed = seed;
+    const rand = makeRand(seed ^ 0x9e3779b9);
+    for (let i = points.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = points[i].homeX;
+      points[i].homeX = points[j].homeX;
+      points[j].homeX = tmp;
+      const tmpY = points[i].homeY;
+      points[i].homeY = points[j].homeY;
+      points[j].homeY = tmpY;
+    }
+    for (const p of points) {
+      p.x = p.homeX + (rand() - 0.5) * 24;
+      p.y = p.homeY + (rand() - 0.5) * 24;
+      p.vx = (rand() - 0.5) * 2;
+      p.vy = (rand() - 0.5) * 2;
+    }
   }
-}
 
-function updateUiAccent(glow) {
-  if (frameCount % 8 !== 0) return;
-  document.documentElement.style.setProperty("--ui-accent", `${glow[0]}, ${glow[1]}, ${glow[2]}`);
-}
+  function resizeCanvas() {
+    w = window.innerWidth;
+    h = window.innerHeight;
+    dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    computeFit();
+  }
 
-function reseed(v = int(random(1e9))) {
-  seedValue = v;
-  randomSeed(seedValue);
-  noiseSeed(seedValue);
-}
+  function makeProceduralMask() {
+    // Fallback shaped to match Chakana Andina silhouette (stepped arms + circular center void).
+    maskW = 420;
+    maskH = 420;
+    const off = document.createElement('canvas');
+    off.width = maskW;
+    off.height = maskH;
+    const ox = off.getContext('2d');
+    ox.clearRect(0, 0, maskW, maskH);
 
-function keyPressed() {
-  if (key >= '1' && key <= '5') setMode(int(key));
-  if (key === 'p' || key === 'P') togglePalette();
-  if (key === 'v' || key === 'V') toggleLines();
-  if (key === 'g' || key === 'G') toggleGlow();
-  if (key === 't' || key === 'T') toggleTrails();
-  if (key === 'c' || key === 'C') randomizePaletteOffset();
-  if (key === 'r' || key === 'R') resetSeed();
-  if (key === 'h' || key === 'H') toggleUiOverlay();
-}
+    const u = 42;
+    const cx = Math.floor(maskW / 2);
+    const cy = Math.floor(maskH / 2);
 
-function setMode(nextMode) {
-  mode = constrain(nextMode, 1, 5);
-}
+    ox.fillStyle = '#fff';
 
-function togglePalette() {
-  paletteOn = !paletteOn;
-}
+    // Core block (5u x 5u)
+    ox.fillRect(cx - Math.floor(2.5 * u), cy - Math.floor(2.5 * u), 5 * u, 5 * u);
 
-function toggleLines() {
-  linesOn = !linesOn;
-}
+    // Cardinal stepped arms (top, bottom: 3u x 2u; left, right: 2u x 3u)
+    ox.fillRect(cx - Math.floor(1.5 * u), cy - Math.floor(4.5 * u), 3 * u, 2 * u); // top
+    ox.fillRect(cx - Math.floor(1.5 * u), cy + Math.floor(2.5 * u), 3 * u, 2 * u); // bottom
+    ox.fillRect(cx - Math.floor(4.5 * u), cy - Math.floor(1.5 * u), 2 * u, 3 * u); // left
+    ox.fillRect(cx + Math.floor(2.5 * u), cy - Math.floor(1.5 * u), 2 * u, 3 * u); // right
 
-function toggleGlow() {
-  glowOn = !glowOn;
-}
+    // Center circular void
+    ox.save();
+    ox.globalCompositeOperation = 'destination-out';
+    ox.beginPath();
+    ox.arc(cx, cy, u * 1.45, 0, Math.PI * 2);
+    ox.fill();
+    ox.restore();
 
-function toggleTrails() {
-  trailsOn = !trailsOn;
-}
+    maskData = ox.getImageData(0, 0, maskW, maskH);
+    source = 'procedural';
+    log('Procedural chakana mask generated (Andean stepped profile).');
+  }
 
-function randomizePaletteOffset() {
-  paletteOffset = int(random(BAUHAUS.length));
-}
+  function computeBBoxFromAlpha(imageData, threshold = CFG.alphaThreshold) {
+    const data = imageData.data;
+    let minX = imageData.width;
+    let minY = imageData.height;
+    let maxX = -1;
+    let maxY = -1;
 
-function resetSeed() {
-  reseed();
-  buildParticlesFromText();
-}
+    for (let y = 0; y < imageData.height; y++) {
+      for (let x = 0; x < imageData.width; x++) {
+        const i = (y * imageData.width + x) * 4;
+        if (data[i + 3] > threshold) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
 
-function toggleUiOverlay() {
-  uiVisible = !uiVisible;
-  if (overlayNode) overlayNode.classList.toggle('is-hidden', !uiVisible);
-}
+    if (maxX < minX || maxY < minY) return null;
+    return { minX, minY, maxX, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  }
 
-function setupControls() {
-  if (controlsReady) return;
-  statusNode = document.getElementById('status-readout');
-  overlayNode = document.getElementById('overlay-ui');
-  controlsReady = true;
-  updateStatusReadout(true);
-}
+  function computeFit() {
+    if (!bbox || !bbox.w || !bbox.h || !w || !h) {
+      fit = { scale: 1, offsetX: 0, offsetY: 0 };
+      return;
+    }
+    const pad = Math.min(w, h) * CFG.padRatio;
+    const scale = Math.min((w - 2 * pad) / bbox.w, (h - 2 * pad) / bbox.h);
+    const offsetX = (w - bbox.w * scale) / 2 - bbox.minX * scale;
+    const offsetY = (h - bbox.h * scale) / 2 - bbox.minY * scale;
+    fit = { scale, offsetX, offsetY };
+  }
 
-function updateStatusReadout(force = false) {
-  if (!controlsReady || !statusNode) return;
-  if (!force && frameCount % 12 !== 0) return;
 
-  statusNode.textContent = `mode ${mode} · particles ${particles.length} · fps ${frameRate().toFixed(0)} · ui ${uiVisible ? 'on' : 'off'}`;
-}
+  function isMaskUsable(currentBbox) {
+    if (!currentBbox || !maskData) return false;
+    const widthRatio = currentBbox.w / maskW;
+    const heightRatio = currentBbox.h / maskH;
+    const aspect = currentBbox.w / currentBbox.h;
 
-function recomputeArtLayout() {
-  const safeSide = min(windowWidth, windowHeight) * 0.9;
-  artLayout.w = safeSide;
-  artLayout.h = safeSide;
-  artLayout.x = (windowWidth - safeSide) * 0.5;
-  artLayout.y = (windowHeight - safeSide) * 0.5;
-}
+    // Chakana expected: centered hole in the core. If center is fully occupied, reject shape mask.
+    const cx0 = Math.floor(currentBbox.minX + currentBbox.w * 0.45);
+    const cx1 = Math.ceil(currentBbox.minX + currentBbox.w * 0.55);
+    const cy0 = Math.floor(currentBbox.minY + currentBbox.h * 0.45);
+    const cy1 = Math.ceil(currentBbox.minY + currentBbox.h * 0.55);
 
-function handleResize() {
-  resizeCanvas(windowWidth, windowHeight);
-  pg = createGraphics(windowWidth, windowHeight, P2D);
-  recomputeArtLayout();
-  buildParticlesFromText();
-}
+    let centerActive = 0;
+    let centerTotal = 0;
+    for (let y = cy0; y < cy1; y++) {
+      for (let x = cx0; x < cx1; x++) {
+        const i = (y * maskW + x) * 4;
+        if (maskData.data[i + 3] > CFG.alphaThreshold) centerActive++;
+        centerTotal++;
+      }
+    }
 
-function windowResized() {
-  handleResize();
-}
+    const cornerSpanX = Math.max(1, Math.floor(currentBbox.w * 0.12));
+    const cornerSpanY = Math.max(1, Math.floor(currentBbox.h * 0.12));
+    const corners = [
+      [currentBbox.minX, currentBbox.minY],
+      [currentBbox.maxX - cornerSpanX, currentBbox.minY],
+      [currentBbox.minX, currentBbox.maxY - cornerSpanY],
+      [currentBbox.maxX - cornerSpanX, currentBbox.maxY - cornerSpanY],
+    ];
+
+    let cornerActive = 0;
+    let cornerTotal = 0;
+    for (const [sx, sy] of corners) {
+      for (let y = sy; y < sy + cornerSpanY; y++) {
+        for (let x = sx; x < sx + cornerSpanX; x++) {
+          const i = (y * maskW + x) * 4;
+          if (maskData.data[i + 3] > CFG.alphaThreshold) cornerActive++;
+          cornerTotal++;
+        }
+      }
+    }
+
+    const centerFill = centerTotal > 0 ? centerActive / centerTotal : 1;
+    const cornerFill = cornerTotal > 0 ? cornerActive / cornerTotal : 1;
+    return widthRatio > 0.25 && heightRatio > 0.25 && aspect > 0.55 && aspect < 1.8 && centerFill < 0.35 && cornerFill < 0.22;
+  }
+
+  function pointsFromMask() {
+    if (!maskData) return [];
+    const pts = [];
+    const data = maskData.data;
+    const rand = makeRand(seed);
+    for (let y = 0; y < maskH; y += CFG.step) {
+      for (let x = 0; x < maskW; x += CFG.step) {
+        const i = (y * maskW + x) * 4;
+        if (data[i + 3] > CFG.alphaThreshold) {
+          const r = rand();
+          const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
+          pts.push(new Particle(x + (rand() - 0.5) * 0.7, y + (rand() - 0.5) * 0.7, tier, rand));
+          if (pts.length >= CFG.maxPoints) return pts;
+        }
+      }
+    }
+    return pts;
+  }
+
+  async function loadMaskFromShape() {
+    log('Loading ./shape.png…');
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('shape.png failed to load'));
+      el.src = './shape.png';
+    });
+
+    log('shape.png loaded', { width: img.width, height: img.height });
+    maskW = img.width;
+    maskH = img.height;
+    const off = document.createElement('canvas');
+    off.width = maskW;
+    off.height = maskH;
+    const ox = off.getContext('2d');
+    ox.clearRect(0, 0, maskW, maskH);
+    ox.drawImage(img, 0, 0);
+    maskData = ox.getImageData(0, 0, maskW, maskH);
+    source = 'shape.png';
+    log('Mask generated from shape.png.');
+  }
+
+  async function rebuild() {
+    try {
+      if (FORCE_PROCEDURAL_MASK) throw new Error('shape bypassed to guarantee chakana silhouette');
+      await loadMaskFromShape();
+      bbox = computeBBoxFromAlpha(maskData);
+      if (!isMaskUsable(bbox)) throw new Error('shape alpha bbox invalid for chakana fit');
+    } catch (err) {
+      log('shape fallback trigger', err.message || String(err));
+      makeProceduralMask();
+      bbox = computeBBoxFromAlpha(maskData);
+    }
+
+    if (!bbox) {
+      makeProceduralMask();
+      bbox = computeBBoxFromAlpha(maskData);
+      if (!bbox) throw new Error('procedural fallback also produced empty bbox');
+    }
+
+    computeFit();
+    points = pointsFromMask();
+    if (points.length === 0) {
+      log('No points found, forcing procedural rebuild.');
+      makeProceduralMask();
+      bbox = computeBBoxFromAlpha(maskData);
+      computeFit();
+      points = pointsFromMask();
+    }
+    if (points.length === 0) throw new Error('points.length is still 0 after procedural fallback');
+
+    log('points ready', { points: points.length, source, bbox, fit });
+  }
+
+  function paletteNow(t) {
+    const count = BAUHAUS.length;
+    if (!paletteOn) return BAUHAUS[(paletteShift + mode - 1 + count * 4) % count];
+
+    const cyc = (Math.sin(t * 0.35) * 0.5 + 0.5) * (count - 0.001);
+    const i0 = (Math.floor(cyc) + paletteShift) % count;
+    const i1 = (i0 + 1) % count;
+    const u = cyc - Math.floor(cyc);
+    return [
+      mix3(BAUHAUS[i0][0], BAUHAUS[i1][0], u),
+      mix3(BAUHAUS[i0][1], BAUHAUS[i1][1], u),
+      mix3(BAUHAUS[i0][2], BAUHAUS[i1][2], u),
+    ];
+  }
+
+  function drawLinks(ink) {
+    if (!linksOn) return;
+    const maxDist2 = CFG.linksMaxDist * CFG.linksMaxDist;
+    let drawn = 0;
+    ctx.lineWidth = 0.36;
+    ctx.strokeStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.22)`;
+    for (let i = 0; i < points.length && drawn < CFG.maxLinks; i += 2) {
+      const a = points[i];
+      for (let j = i + 3; j < points.length && drawn < CFG.maxLinks; j += 5) {
+        const b = points[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < maxDist2) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          drawn++;
+        }
+      }
+    }
+  }
+
+  function animate(ts) {
+    fpsFrames++;
+    const t = ts * 0.001;
+    const profile = MODES[mode];
+    const [ink, bg, glow] = paletteNow(t);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (trailsOn) {
+      ctx.fillStyle = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, 0.19)`;
+    } else {
+      ctx.fillStyle = `rgb(${bg[0]}, ${bg[1]}, ${bg[2]})`;
+    }
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.setTransform(dpr * fit.scale, 0, 0, dpr * fit.scale, dpr * fit.offsetX, dpr * fit.offsetY);
+
+    const mx = (mouse.x - fit.offsetX) / fit.scale;
+    const my = (mouse.y - fit.offsetY) / fit.scale;
+
+    if (linesOn) {
+      ctx.strokeStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.26)`;
+      ctx.lineWidth = 0.22;
+    }
+
+    for (const p of points) {
+      p.update(t, profile, mx, my);
+
+      if (linesOn) {
+        ctx.beginPath();
+        ctx.moveTo(p.px, p.py);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
+
+      const speed = Math.hypot(p.vx, p.vy);
+      const size = Math.min(3.2, p.baseSize + speed * 0.16);
+
+      if (glowOn) {
+        ctx.fillStyle = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, 0.10)`;
+        ctx.fillRect(p.x - size * 0.9, p.y - size * 0.9, size * 2.1, size * 2.1);
+      }
+
+      ctx.fillStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.9)`;
+      ctx.fillRect(p.x, p.y, size, size);
+    }
+
+    drawLinks(ink);
+
+    const dt = ts - fpsLast;
+    if (dt > 350) {
+      fps = (fpsFrames * 1000) / dt;
+      fpsFrames = 0;
+      fpsLast = ts;
+      updateStatus();
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  function updateStatus() {
+    if (!statusNode) return;
+    if (errorText) {
+      statusNode.textContent = `ERROR: ${errorText}`;
+      return;
+    }
+    statusNode.textContent = `points: ${points.length} | fps: ${fps.toFixed(0)} | source: ${source} | mode:${mode} | P:${onOff(paletteOn)} V:${onOff(linesOn)} G:${onOff(glowOn)} T:${onOff(trailsOn)} L:${onOff(linksOn)}`;
+  }
+
+  function bindInput() {
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    });
+    window.addEventListener('mousedown', () => { mouse.down = true; });
+    window.addEventListener('mouseup', () => { mouse.down = false; });
+    window.addEventListener('mouseleave', () => { mouse.down = false; });
+
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if (k >= '1' && k <= '5') mode = Number(k);
+      else if (k === 'p') paletteOn = !paletteOn;
+      else if (k === 'c') paletteShift = (paletteShift + 1) % BAUHAUS.length;
+      else if (k === 'v') linesOn = !linesOn;
+      else if (k === 'g') glowOn = !glowOn;
+      else if (k === 't') trailsOn = !trailsOn;
+      else if (k === 'l') linksOn = !linksOn;
+      else if (k === 'r') reseed();
+      else if (k === 'h') {
+        uiVisible = !uiVisible;
+        overlay.classList.toggle('is-hidden', !uiVisible);
+      }
+      updateStatus();
+    });
+
+    window.addEventListener('resize', async () => {
+      resizeCanvas();
+      computeFit();
+      updateStatus();
+    });
+  }
+
+  async function boot() {
+    try {
+      resizeCanvas();
+      bindInput();
+      await rebuild();
+      updateStatus();
+      window.__AF_SKETCH_READY__ = true;
+      log('Render loop started.');
+      requestAnimationFrame(animate);
+    } catch (err) {
+      errorText = err.stack || String(err);
+      updateStatus();
+      console.error('[AF] Fatal init error', err);
+    }
+  }
+
+  function mix3(a, b, u) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * u),
+      Math.round(a[1] + (b[1] - a[1]) * u),
+      Math.round(a[2] + (b[2] - a[2]) * u),
+    ];
+  }
+
+  function makeRand(start) {
+    let s = start >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 0xffffffff;
+    };
+  }
+
+  function noise2(x, y, t, sn) {
+    const val = Math.sin((x * 12.9898 + y * 78.233 + t * 37.719 + sn * 0.0001) * 43758.5453);
+    return val - Math.floor(val);
+  }
+
+  function onOff(v) {
+    return v ? 'on' : 'off';
+  }
+
+  boot();
+})();
