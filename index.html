@@ -3,70 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
   <title>ANCESTRAL FLUX — Web</title>
-  <!-- cache-busting para forzar refresco en GitHub Pages/CDN -->
-  <link rel="stylesheet" href="styles.css?v=20260220-2" />
-  <script>
-    (function () {
-      const ASSET_VERSION = '20260220-2';
-
-      function loadScript(src, onOk, onErr) {
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = onOk;
-        s.onerror = onErr;
-        document.head.appendChild(s);
-      }
-
-      function showStatus(text) {
-        const node = document.getElementById('status-readout');
-        if (node) node.textContent = text;
-      }
-
-      function loadSketch() {
-        const sketch = document.createElement('script');
-        sketch.src = `web-sketch.js?v=${ASSET_VERSION}`;
-        sketch.defer = true;
-        document.head.appendChild(sketch);
-
-        window.setTimeout(() => {
-          if (!window.__AF_SKETCH_READY__) {
-            showStatus('No se pudo iniciar el render. Revisa conexión/CDN o limpia caché.');
-          }
-        }, 4200);
-      }
-
-      loadScript(
-        'https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js',
-        loadSketch,
-        () => loadScript('https://unpkg.com/p5@1.9.4/lib/p5.min.js', loadSketch, () => {
-          showStatus('Error cargando p5.js desde ambos CDNs.');
-        })
-      );
-    })();
-  </script>
+  <link rel="stylesheet" href="./styles.css" />
+  <script defer src="./web-sketch.js"></script>
 </head>
 <body>
+  <canvas id="flux-canvas" aria-label="Chakana de partículas"></canvas>
+
   <aside class="ui" id="overlay-ui" aria-label="Panel de comandos">
     <h1>ANCESTRAL FLUX</h1>
-    <p>Mouse: move → flow</p>
-    <p>Click → vortex</p>
-
+    <p>Mouse: move → flow · Click → vortex</p>
     <ul>
       <li><kbd>1-5</kbd> modos</li>
-      <li><kbd>P</kbd> palette</li>
-      <li><kbd>V</kbd> lines</li>
-      <li><kbd>G</kbd> glow</li>
-      <li><kbd>T</kbd> trails</li>
-      <li><kbd>C</kbd> palette shift</li>
-      <li><kbd>R</kbd> reseed</li>
       <li><kbd>H</kbd> hide/show UI</li>
     </ul>
-
-    <p class="status" id="status-readout" aria-live="polite">build 20260220-2</p>
+    <p class="status" id="status-readout" aria-live="polite">starting…</p>
   </aside>
 </body>
 </html>
