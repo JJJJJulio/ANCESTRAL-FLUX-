@@ -21,7 +21,15 @@
   const canvas = document.getElementById('flux-canvas');
   const statusNode = document.getElementById('status-readout');
   const overlay = document.getElementById('overlay-ui');
+
+  if (!canvas) {
+    throw new Error('Missing #flux-canvas element in index.html.');
+  }
+
   const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    throw new Error('Unable to initialize 2D context for #flux-canvas.');
+  }
 
   let mode = 2;
   let uiVisible = true;
