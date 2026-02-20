@@ -1,25 +1,29 @@
 # ANCESTRAL-FLUX-
 
-Sketch generativo artistico en Processing 3.5.4 (Python Mode).
+Proyecto generativo artistico inspirado en CHAKANA.
 
-## Controles
+## Contenido
 
-- `1/2/3/4/5`: modos de deformacion
-- `P`: color dinamico ON/OFF
-- `C`: cambiar paleta aleatoriamente
-- `V` (o `L`): links ON/OFF
-- `M`: deformacion extrema ON/OFF
-- `R`: regenerar seed
-- `E`: export PNG ON/OFF
+- `CHAKANA-FLUX.py`: version Processing Python Mode (single-file).
+- `index.html` + `web-sketch.js` + `styles.css`: pagina web interactiva con la misma logica visual base (particulas, trails, glow, links y modos).
 
-## Imagen de referencia
+## Pagina web
 
-- Agrega la imagen al sketch en `data/`.
-- Recomendado: `shape.png`.
+Abrir `index.html` en navegador o servir con HTTP local.
 
-## Export
+Controles web:
+- `1..5` modos
+- `P` paleta dinamica Bauhaus ON/OFF
+- `V` lineas ON/OFF
+- `G` glow ON/OFF
+- `T` trails ON/OFF
+- `C` variacion de paleta
+- `R` nueva seed
 
-- Resolucion: 1920x1080
-- FPS preview: 60
-- FPS export estable: 30
-- Secuencia PNG en: `outputs/chakana-flux/<timestamp>/frames/`
+Interaccion del mouse (protagonica):
+- mover mouse: deforma y arrastra el flujo
+- mantener click: activa vortice intenso y mayor energia visual
+
+Imagen de referencia:
+- si existe `shape.png` junto a `index.html`, se usa como mascara base
+- si no existe, el sistema usa texto "CHAKANA" como forma fallback
