@@ -27,3 +27,4 @@ Interaccion del mouse (protagonica):
 Imagen de referencia:
 - si existe `shape.png` junto a `index.html`, se usa como mascara base
 - si no existe, el sistema usa texto "CHAKANA" como forma fallback
+update
