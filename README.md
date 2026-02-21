@@ -25,3 +25,4 @@ Abrir `http://localhost:4173`.
 Imagen de referencia:
 - si existe `shape.png` (o `data/shape.png` / `assets/shape.png`), se usa como mascara base
 - si no existe, el sistema genera una silueta procedural tipo chakana (no texto)
+update
