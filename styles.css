@@ -85,3 +85,11 @@ kbd {
     font-size: 10px;
   }
 }
+
+
+.build-tag {
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.78;
+  letter-spacing: 0.08em;
+}
