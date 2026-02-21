@@ -21,7 +21,15 @@
   const canvas = document.getElementById('flux-canvas');
   const statusNode = document.getElementById('status-readout');
   const overlay = document.getElementById('overlay-ui');
+
+  if (!canvas) {
+    throw new Error('Missing #flux-canvas element in index.html.');
+  }
+
   const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    throw new Error('Unable to initialize 2D context for #flux-canvas.');
+  }
 
   let mode = 2;
   let uiVisible = true;
@@ -35,6 +43,9 @@
   let fps = 0;
   let lastFpsT = performance.now();
   let frameCounter = 0;
+  let shapeImagePromise = null;
+  let resizeDebounceTimer = null;
+  let rebuildSerial = 0;
 
   class Particle {
     constructor(x, y, tier) {
@@ -95,7 +106,7 @@
     else console.log(`[AF] ${msg}`);
   }
 
-  function resize() {
+  function resizeCanvas() {
     w = window.innerWidth;
     h = window.innerHeight;
     dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -175,28 +186,40 @@
   }
 
   function loadShapeImage() {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('shape.png failed to load.'));
-      img.src = './shape.png';
-    });
+    if (!shapeImagePromise) {
+      shapeImagePromise = new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('shape.png failed to load.'));
+        img.src = './shape.png';
+      });
+    }
+    return shapeImagePromise;
   }
 
   async function rebuildParticles() {
+    const runId = ++rebuildSerial;
+    resizeCanvas();
     log('Loading ./shape.png…');
     try {
       const img = await loadShapeImage();
+      if (runId !== rebuildSerial) return;
       log('shape.png loaded.', { width: img.width, height: img.height });
+
+      // Re-fit with the final canvas size after image load, then rebuild home points.
+      resizeCanvas();
       const mask = buildMaskFromImage(img);
       log('Mask generated from shape.png.');
       particles = pointsFromMask(mask, 'shape.png');
       if (particles.length === 0) fallbackIfEmpty('shape alpha produced 0 points');
     } catch (err) {
+      if (runId !== rebuildSerial) return;
       log('shape.png unavailable, using procedural fallback.', err.message);
+      resizeCanvas();
       fallbackIfEmpty(err.message);
     }
 
+    if (runId !== rebuildSerial) return;
     if (particles.length === 0) fallbackIfEmpty('safety net points.length === 0');
     log(`Points ready: ${particles.length} | source: ${source}`);
   }
@@ -227,9 +250,14 @@
       }
     });
 
-    window.addEventListener('resize', async () => {
-      resize();
-      await rebuildParticles();
+    window.addEventListener('resize', () => {
+      if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+      resizeDebounceTimer = setTimeout(() => {
+        rebuildParticles().catch((err) => {
+          errorText = err.stack || String(err);
+          updateStatus();
+        });
+      }, 140);
     });
   }
 
@@ -265,7 +293,7 @@
 
   async function boot() {
     try {
-      resize();
+      resizeCanvas();
       bindInput();
       await rebuildParticles();
       window.__AF_SKETCH_READY__ = true;
