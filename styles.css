@@ -3,56 +3,85 @@
 }
 
 * { box-sizing: border-box; }
-body {
+
+html, body {
   margin: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  background: #0a0a0a;
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #050507;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+#flux-canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
 }
 
 .ui {
   position: fixed;
-  top: 16px;
-  left: 16px;
+  top: 12px;
+  left: 12px;
   z-index: 10;
-  max-width: 380px;
-  color: #f7f7f7;
-  background: color-mix(in srgb, #000 58%, transparent);
-  border: 1px solid #ffffff24;
-  border-radius: 14px;
-  padding: 12px 14px;
-  backdrop-filter: blur(8px);
+  width: min(320px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(16, 18, 26, 0.28);
+  backdrop-filter: blur(9px) saturate(120%);
+  -webkit-backdrop-filter: blur(9px) saturate(120%);
+  color: rgba(246, 247, 252, 0.83);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+}
+
+.ui.is-hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .ui h1 {
-  margin: 0 0 6px;
-  font-size: 15px;
-  letter-spacing: 0.08em;
+  margin: 0 0 5px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
 }
 
-.ui p {
-  margin: 0 0 8px;
-  font-size: 12px;
+.ui p,
+.ui li {
+  margin: 0;
+  font-size: 11px;
   line-height: 1.35;
-  opacity: 0.92;
 }
 
 .ui ul {
-  margin: 0;
-  padding-left: 16px;
-  font-size: 12px;
-  display: grid;
-  gap: 2px;
+  margin: 6px 0 0;
+  padding-left: 14px;
+}
+
+.status {
+  margin-top: 8px;
+  opacity: 0.9;
+  overflow-wrap: anywhere;
 }
 
 kbd {
-  border: 1px solid #ffffff4d;
-  border-bottom-width: 2px;
-  border-radius: 6px;
-  padding: 1px 5px;
-  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 10px;
 }
 
-canvas {
-  display: block;
+@media (max-width: 720px) {
+  .ui {
+    top: 8px;
+    left: 8px;
+    width: min(280px, calc(100vw - 16px));
+    padding: 8px 9px;
+  }
+
+  .ui h1,
+  .ui p,
+  .ui li {
+    font-size: 10px;
+  }
 }

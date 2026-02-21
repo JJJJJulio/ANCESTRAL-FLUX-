@@ -1,28 +1,26 @@
 # ANCESTRAL-FLUX-
 
-Proyecto generativo artistico inspirado en CHAKANA.
+Visual interactivo de partículas con silueta de chakana para GitHub Pages.
 
-## Contenido
+## Ejecutar local
 
-- `CHAKANA-FLUX.py`: version Processing Python Mode (single-file).
-- `index.html` + `web-sketch.js` + `styles.css`: pagina web interactiva con la misma logica visual base (particulas, trails, glow, links y modos).
+```bash
+python3 -m http.server 4173
+```
 
-## Pagina web
+Abrir `http://localhost:4173`.
 
-Abrir `index.html` en navegador o servir con HTTP local.
+## Verificación para GitHub Pages
 
-Controles web:
-- `1..5` modos
-- `P` paleta dinamica Bauhaus ON/OFF
-- `V` lineas ON/OFF
-- `G` glow ON/OFF
-- `T` trails ON/OFF
-- `C` variacion de paleta
-- `R` nueva seed
+- El deploy debe servir desde la raíz (`/(root)`).
+- Rutas usadas por la app (todas relativas):
+  - `./styles.css`
+  - `./web-sketch.js`
+  - `./shape.png`
+- Si `shape.png` carga bien, la máscara sale de esa imagen.
+- Si `shape.png` falla o no tiene alpha útil, la app activa fallback procedural automáticamente y **sigue renderizando chakana**.
 
-Interaccion del mouse (protagonica):
-- mover mouse: deforma y arrastra el flujo
-- mantener click: activa vortice intenso y mayor energia visual
+## Controles
 
 Imagen de referencia:
 - si existe `shape.png` (o `data/shape.png` / `assets/shape.png`), se usa como mascara base
