@@ -41,4 +41,4 @@ Además hay logs en consola para:
 - generación de máscara
 - conteo de puntos
 - inicio del loop de render
-- update
+  update
