@@ -1,122 +1,41 @@
-(() => {
-  window.__AF_SKETCH_READY__ = false;
+const CONFIG = {
+  maxParticles: 2200,
+  step: 12,
+  linkDistance: 30,
+  linkCapPerParticle: 3,
+  maxSegments: 2400,
+  attraction: 0.028,
+  damping: 0.89,
+  noiseGain: 2.9,
+};
 
-  const CFG = {
-    step: 5,
-    maxPoints: 8000,
-    alphaThreshold: 32,
-    baseReturn: 0.085,
-    mouseRadius: 34,
-    padRatio: 0.08,
-    linksMaxDist: 7.5,
-    maxLinks: 1600,
-  };
+const BAUHAUS = [
+  [[245, 245, 245], [0, 0, 0], [230, 57, 70]],
+  [[0, 0, 0], [245, 245, 245], [69, 123, 157]],
+  [[130, 130, 130], [245, 245, 245], [241, 250, 60]],
+  [[245, 245, 245], [69, 123, 157], [230, 57, 70]],
+  [[0, 0, 0], [241, 250, 60], [230, 57, 70]],
+];
 
-  const BAUHAUS = [
-    [[245, 245, 245], [8, 8, 10], [230, 57, 70]],
-    [[8, 8, 10], [245, 245, 245], [69, 123, 157]],
-    [[222, 222, 222], [12, 12, 14], [241, 250, 60]],
-    [[245, 245, 245], [69, 123, 157], [230, 57, 70]],
-    [[15, 15, 20], [241, 250, 60], [230, 57, 70]],
-  ];
+const SHAPE_PATHS = ["shape.png", "./shape.png", "data/shape.png", "assets/shape.png"];
 
-  const FORCE_PROCEDURAL_MASK = true;
+let particles = [];
+let links = [];
+let pg;
+let mode = 2;
+let glowOn = true;
+let linesOn = true;
+let paletteOn = true;
+let trailsOn = true;
+let paletteOffset = 0;
+let seedValue = 4242;
+let shapeImg = null;
 
-  const MODES = {
-    1: { swirl: 0.28, jitter: 0.06, speed: 0.94 },
-    2: { swirl: 0.65, jitter: 0.11, speed: 1.0 },
-    3: { swirl: 1.0, jitter: 0.17, speed: 1.05 },
-    4: { swirl: 1.5, jitter: 0.24, speed: 1.12 },
-    5: { swirl: 2.1, jitter: 0.32, speed: 1.2 },
-  };
-
-  const canvas = document.getElementById('flux-canvas');
-  const ctx = canvas.getContext('2d', { alpha: false });
-  const overlay = document.getElementById('overlay-ui');
-  const statusNode = document.getElementById('status-readout');
-
-  let w = 0;
-  let h = 0;
-  let dpr = 1;
-  let mode = 2;
-  let source = 'boot';
-  let errorText = '';
-  let uiVisible = true;
-  let glowOn = true;
-  let linesOn = true;
-  let trailsOn = true;
-  let linksOn = true;
-  let paletteOn = true;
-  let paletteShift = 0;
-  let seed = 4242;
-  let noiseSeed = seed;
-
-  let points = [];
-  let maskData = null;
-  let maskW = 0;
-  let maskH = 0;
-  let bbox = { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 };
-  let fit = { scale: 1, offsetX: 0, offsetY: 0 };
-
-  let mouse = { x: -1e6, y: -1e6, down: false };
-  let fps = 0;
-  let fpsFrames = 0;
-  let fpsLast = performance.now();
-
-  class Particle {
-    constructor(x, y, tier, rand) {
-      this.homeX = x;
-      this.homeY = y;
-      this.x = x + (rand() - 0.5) * 18;
-      this.y = y + (rand() - 0.5) * 18;
-      this.px = this.x;
-      this.py = this.y;
-      this.vx = 0;
-      this.vy = 0;
-      this.tier = tier;
-      this.baseSize = tier === 0 ? 0.8 : tier === 1 ? 1.2 : 1.8;
-      this.drag = tier === 0 ? 0.9 : tier === 1 ? 0.875 : 0.84;
-    }
-
-    update(t, profile, mx, my) {
-      this.px = this.x;
-      this.py = this.y;
-
-      const homeDx = this.homeX - this.x;
-      const homeDy = this.homeY - this.y;
-      this.vx += homeDx * CFG.baseReturn * profile.speed;
-      this.vy += homeDy * CFG.baseReturn * profile.speed;
-
-      const n = noise2(this.x * 0.021, this.y * 0.021, t, noiseSeed);
-      const ang = n * Math.PI * 2;
-      this.vx += Math.cos(ang) * profile.jitter;
-      this.vy += Math.sin(ang) * profile.jitter;
-
-      const dxm = this.x - mx;
-      const dym = this.y - my;
-      const d2 = dxm * dxm + dym * dym;
-      const rr = CFG.mouseRadius * CFG.mouseRadius;
-      if (d2 < rr) {
-        const inv = 1 / Math.sqrt(d2 + 1e-3);
-        const nx = dxm * inv;
-        const ny = dym * inv;
-        const tx = -ny;
-        const ty = nx;
-        const falloff = 1 - d2 / rr;
-        const swirl = profile.swirl * falloff;
-        this.vx += tx * swirl;
-        this.vy += ty * swirl;
-        if (mouse.down) {
-          this.vx -= nx * 0.7 * falloff;
-          this.vy -= ny * 0.7 * falloff;
-        }
-      }
-
-      this.vx *= this.drag;
-      this.vy *= this.drag;
-      this.x += this.vx;
-      this.y += this.vy;
-    }
+class Particle {
+  constructor(home) {
+    this.home = home.copy();
+    this.pos = createVector(random(width), random(height));
+    this.vel = createVector(0, 0);
   }
 
   function log(msg, payload) {
@@ -212,14 +131,23 @@
       }
     }
 
-    if (maxX < minX || maxY < minY) return null;
-    return { minX, minY, maxX, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
-  }
+    // Mouse protagonista: atraccion + giro tipo vortice, y mas fuerza en click.
+    const dxm = this.pos.x - mouseX;
+    const dym = this.pos.y - mouseY;
+    const d2 = dxm * dxm + dym * dym + 1;
+    if (d2 < (min(width, height) * 0.55) ** 2) {
+      const inv = 1 / sqrt(d2);
+      const dirx = dxm * inv;
+      const diry = dym * inv;
+      const tangx = -diry;
+      const tangy = dirx;
 
-  function computeFit() {
-    if (!bbox || !bbox.w || !bbox.h || !w || !h) {
-      fit = { scale: 1, offsetX: 0, offsetY: 0 };
-      return;
+      const pressure = mouseIsPressed ? 2.5 : 1.0;
+      const attract = mouseIsPressed ? -380 / d2 : -130 / d2;
+      const spin = mouseIsPressed ? 260 / d2 : 110 / d2;
+
+      fx += (dirx * attract + tangx * spin) * pressure;
+      fy += (diry * attract + tangy * spin) * pressure;
     }
     const pad = Math.min(w, h) * CFG.padRatio;
     const scale = Math.min((w - 2 * pad) / bbox.w, (h - 2 * pad) / bbox.h);
@@ -276,22 +204,53 @@
     const cornerFill = cornerTotal > 0 ? cornerActive / cornerTotal : 1;
     return widthRatio > 0.25 && heightRatio > 0.25 && aspect > 0.55 && aspect < 1.8 && centerFill < 0.35 && cornerFill < 0.22;
   }
+}
 
-  function pointsFromMask() {
-    if (!maskData) return [];
-    const pts = [];
-    const data = maskData.data;
-    const rand = makeRand(seed);
-    for (let y = 0; y < maskH; y += CFG.step) {
-      for (let x = 0; x < maskW; x += CFG.step) {
-        const i = (y * maskW + x) * 4;
-        if (data[i + 3] > CFG.alphaThreshold) {
-          const r = rand();
-          const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
-          pts.push(new Particle(x + (rand() - 0.5) * 0.7, y + (rand() - 0.5) * 0.7, tier, rand));
-          if (pts.length >= CFG.maxPoints) return pts;
-        }
+function setup() {
+  createCanvas(windowWidth, windowHeight, P2D);
+  pg = createGraphics(windowWidth, windowHeight, P2D);
+  reseed(seedValue);
+  buildParticlesFromMask();
+  loadShapeWithFallback();
+}
+
+function loadShapeWithFallback(index = 0) {
+  if (index >= SHAPE_PATHS.length) {
+    console.log("No se encontro imagen externa. Se usa silueta procedimental CHAKANA.");
+    return;
+  }
+  loadImage(
+    SHAPE_PATHS[index],
+    (img) => {
+      if (img && img.width > 0 && img.height > 0) {
+        shapeImg = img;
+        console.log("Mascara cargada:", SHAPE_PATHS[index], img.width, "x", img.height);
+        buildParticlesFromMask();
+      } else {
+        loadShapeWithFallback(index + 1);
       }
+    },
+    () => loadShapeWithFallback(index + 1)
+  );
+}
+
+function draw() {
+  const t = (frameCount % 3000) / 3000 * TWO_PI;
+  const [bg, ink, glow] = paletteNow(t);
+
+  pg.noStroke();
+  pg.fill(bg[0], bg[1], bg[2], trailsOn ? 18 : 255);
+  pg.rect(0, 0, width, height);
+
+  const profile = modeProfile(mode);
+  for (const p of particles) p.update(profile, t);
+
+  if (linesOn) {
+    rebuildLinks();
+    pg.strokeWeight(0.65);
+    for (const s of links) {
+      pg.stroke(ink[0], ink[1], ink[2], s[4]);
+      pg.line(s[0], s[1], s[2], s[3]);
     }
     return pts;
   }
@@ -389,106 +348,54 @@
       }
     }
   }
+}
 
-  function animate(ts) {
-    fpsFrames++;
-    const t = ts * 0.001;
-    const profile = MODES[mode];
-    const [ink, bg, glow] = paletteNow(t);
+function drawProceduralChakanaMask(stamp) {
+  const cx = width * 0.5;
+  const cy = height * 0.5;
+  const size = min(width, height) * 0.62;
+  const core = size * 0.62;
+  const arm = size * 0.26;
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (trailsOn) {
-      ctx.fillStyle = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, 0.19)`;
-    } else {
-      ctx.fillStyle = `rgb(${bg[0]}, ${bg[1]}, ${bg[2]})`;
-    }
-    ctx.fillRect(0, 0, w, h);
+  stamp.push();
+  stamp.translate(cx, cy);
+  stamp.rectMode(CENTER);
+  stamp.fill(255);
+  stamp.noStroke();
 
-    ctx.setTransform(dpr * fit.scale, 0, 0, dpr * fit.scale, dpr * fit.offsetX, dpr * fit.offsetY);
+  // cuerpo principal
+  stamp.rect(0, 0, core, core);
+  // 4 extensiones (chakana simplificada)
+  stamp.rect(0, -core * 0.5 - arm * 0.5, core * 0.52, arm);
+  stamp.rect(0,  core * 0.5 + arm * 0.5, core * 0.52, arm);
+  stamp.rect(-core * 0.5 - arm * 0.5, 0, arm, core * 0.52);
+  stamp.rect( core * 0.5 + arm * 0.5, 0, arm, core * 0.52);
 
-    const mx = (mouse.x - fit.offsetX) / fit.scale;
-    const my = (mouse.y - fit.offsetY) / fit.scale;
+  // hueco central
+  stamp.erase();
+  stamp.circle(0, 0, core * 0.46);
+  stamp.noErase();
+  stamp.pop();
+}
 
-    if (linesOn) {
-      ctx.strokeStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.26)`;
-      ctx.lineWidth = 0.22;
-    }
+function buildParticlesFromMask() {
+  particles = [];
+  const stamp = createGraphics(width, height, P2D);
+  stamp.pixelDensity(1);
+  stamp.background(0, 0);
+  stamp.noStroke();
+  stamp.fill(255);
 
-    for (const p of points) {
-      p.update(t, profile, mx, my);
-
-      if (linesOn) {
-        ctx.beginPath();
-        ctx.moveTo(p.px, p.py);
-        ctx.lineTo(p.x, p.y);
-        ctx.stroke();
-      }
-
-      const speed = Math.hypot(p.vx, p.vy);
-      const size = Math.min(3.2, p.baseSize + speed * 0.16);
-
-      if (glowOn) {
-        ctx.fillStyle = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, 0.10)`;
-        ctx.fillRect(p.x - size * 0.9, p.y - size * 0.9, size * 2.1, size * 2.1);
-      }
-
-      ctx.fillStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.9)`;
-      ctx.fillRect(p.x, p.y, size, size);
-    }
-
-    drawLinks(ink);
-
-    const dt = ts - fpsLast;
-    if (dt > 350) {
-      fps = (fpsFrames * 1000) / dt;
-      fpsFrames = 0;
-      fpsLast = ts;
-      updateStatus();
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  function updateStatus() {
-    if (!statusNode) return;
-    if (errorText) {
-      statusNode.textContent = `ERROR: ${errorText}`;
-      return;
-    }
-    statusNode.textContent = `points: ${points.length} | fps: ${fps.toFixed(0)} | source: ${source} | mode:${mode} | P:${onOff(paletteOn)} V:${onOff(linesOn)} G:${onOff(glowOn)} T:${onOff(trailsOn)} L:${onOff(linksOn)}`;
-  }
-
-  function bindInput() {
-    window.addEventListener('mousemove', (e) => {
-      mouse.x = e.clientX;
-      mouse.y = e.clientY;
-    });
-    window.addEventListener('mousedown', () => { mouse.down = true; });
-    window.addEventListener('mouseup', () => { mouse.down = false; });
-    window.addEventListener('mouseleave', () => { mouse.down = false; });
-
-    window.addEventListener('keydown', (e) => {
-      const k = e.key.toLowerCase();
-      if (k >= '1' && k <= '5') mode = Number(k);
-      else if (k === 'p') paletteOn = !paletteOn;
-      else if (k === 'c') paletteShift = (paletteShift + 1) % BAUHAUS.length;
-      else if (k === 'v') linesOn = !linesOn;
-      else if (k === 'g') glowOn = !glowOn;
-      else if (k === 't') trailsOn = !trailsOn;
-      else if (k === 'l') linksOn = !linksOn;
-      else if (k === 'r') reseed();
-      else if (k === 'h') {
-        uiVisible = !uiVisible;
-        overlay.classList.toggle('is-hidden', !uiVisible);
-      }
-      updateStatus();
-    });
-
-    window.addEventListener('resize', async () => {
-      resizeCanvas();
-      computeFit();
-      updateStatus();
-    });
+  if (shapeImg && shapeImg.width > 0 && shapeImg.height > 0) {
+    const pad = min(width, height) * 0.12;
+    const availW = width - pad * 2;
+    const availH = height - pad * 2;
+    const s = min(availW / shapeImg.width, availH / shapeImg.height);
+    const tw = shapeImg.width * s;
+    const th = shapeImg.height * s;
+    stamp.image(shapeImg, (width - tw) * 0.5, (height - th) * 0.5, tw, th);
+  } else {
+    drawProceduralChakanaMask(stamp);
   }
 
   async function boot() {
@@ -531,5 +438,29 @@
     return v ? 'on' : 'off';
   }
 
-  boot();
-})();
+  shuffle(homes, true);
+  homes.length = min(homes.length, CONFIG.maxParticles);
+  particles = homes.map(h => new Particle(h));
+}
+
+function reseed(v = int(random(1e9))) {
+  seedValue = v;
+  randomSeed(seedValue);
+  noiseSeed(seedValue);
+}
+
+function keyPressed() {
+  if (key >= '1' && key <= '5') mode = int(key);
+  if (key === 'p' || key === 'P') paletteOn = !paletteOn;
+  if (key === 'v' || key === 'V') linesOn = !linesOn;
+  if (key === 'g' || key === 'G') glowOn = !glowOn;
+  if (key === 't' || key === 'T') trailsOn = !trailsOn;
+  if (key === 'c' || key === 'C') paletteOffset = int(random(BAUHAUS.length));
+  if (key === 'r' || key === 'R') { reseed(); buildParticlesFromMask(); }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  pg = createGraphics(windowWidth, windowHeight, P2D);
+  buildParticlesFromMask();
+}

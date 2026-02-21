@@ -22,22 +22,6 @@ Abrir `http://localhost:4173`.
 
 ## Controles
 
-- Mouse move: flow
-- Click sostenido: vortex
-- Teclas `1..5`: modos
-- Tecla `H`: mostrar/ocultar panel
-
-## Diagnóstico anti-pantalla-negra
-
-El panel muestra:
-
-- `points: N`
-- `fps: X`
-- `source: shape.png | procedural`
-
-Además hay logs en consola para:
-
-- carga de `shape.png`
-- generación de máscara
-- conteo de puntos
-- inicio del loop de render
+Imagen de referencia:
+- si existe `shape.png` (o `data/shape.png` / `assets/shape.png`), se usa como mascara base
+- si no existe, el sistema genera una silueta procedural tipo chakana (no texto)
