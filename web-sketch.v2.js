@@ -8,6 +8,8 @@
     mouseRadius: 180,
     baseReturn: 0.045,
     noiseSeed: 1337,
+    linkDistance: 20,
+    linkSampleStep: 3,
   };
 
   const MODES = {
@@ -46,6 +48,13 @@
   let shapeImagePromise = null;
   let resizeDebounceTimer = null;
   let rebuildSerial = 0;
+
+  let paletteOn = true;
+  let paletteShift = 0;
+  let glowOn = false;
+  let linesOn = false;
+  let trailsOn = true;
+  let linksOn = false;
 
   class Particle {
     constructor(x, y, tier) {
@@ -96,8 +105,32 @@
       this.y += this.vy;
     }
 
-    draw() {
+    draw(tNow) {
+      if (paletteOn) {
+        const hue = (paletteShift + this.tier * 38 + (tNow * 0.01)) % 360;
+        const sat = this.tier === 2 ? 92 : 76;
+        const light = this.tier === 0 ? 78 : this.tier === 1 ? 70 : 62;
+        ctx.fillStyle = `hsl(${hue} ${sat}% ${light}%)`;
+      } else {
+        ctx.fillStyle = '#f2f2f2';
+      }
+
+      if (glowOn) {
+        ctx.shadowBlur = this.tier === 2 ? 8 : 4;
+        ctx.shadowColor = ctx.fillStyle;
+      }
+
       ctx.fillRect(this.x, this.y, this.size, this.size);
+
+      if (linesOn) {
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.globalAlpha = 0.24;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x - this.vx * 3.2, this.y - this.vy * 3.2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
@@ -155,23 +188,36 @@
   }
 
   function pointsFromMask(imageData, requestedSource) {
-    const pts = [];
+    const coords = [];
     const data = imageData.data;
+
     for (let y = 0; y < h; y += CFG.step) {
       for (let x = 0; x < w; x += CFG.step) {
         const i = (y * w + x) * 4;
-        if (data[i + 3] > 32) {
-          const r = Math.random();
-          const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
-          pts.push(new Particle(x + (Math.random() - 0.5), y + (Math.random() - 0.5), tier));
-          if (pts.length >= CFG.maxPoints) {
-            source = requestedSource;
-            log('Point cap reached.', CFG.maxPoints);
-            return pts;
-          }
-        }
+        if (data[i + 3] > 32) coords.push([x, y]);
       }
     }
+
+    const pts = [];
+    if (coords.length <= CFG.maxPoints) {
+      for (let i = 0; i < coords.length; i++) {
+        const [x, y] = coords[i];
+        const r = Math.random();
+        const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
+        pts.push(new Particle(x + (Math.random() - 0.5), y + (Math.random() - 0.5), tier));
+      }
+    } else {
+      const sampleStride = coords.length / CFG.maxPoints;
+      for (let i = 0; i < CFG.maxPoints; i++) {
+        const idx = Math.floor(i * sampleStride + Math.random() * sampleStride * 0.35);
+        const [x, y] = coords[Math.min(coords.length - 1, idx)];
+        const r = Math.random();
+        const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
+        pts.push(new Particle(x + (Math.random() - 0.5), y + (Math.random() - 0.5), tier));
+      }
+      log('Point cap reached with distributed sampling.', { max: CFG.maxPoints, totalMaskPoints: coords.length });
+    }
+
     source = requestedSource;
     return pts;
   }
@@ -206,7 +252,6 @@
       if (runId !== rebuildSerial) return;
       log('shape.png loaded.', { width: img.width, height: img.height });
 
-      // Re-fit with the final canvas size after image load, then rebuild home points.
       resizeCanvas();
       const mask = buildMaskFromImage(img);
       log('Mask generated from shape.png.');
@@ -243,11 +288,20 @@
     window.addEventListener('mouseleave', () => { mouse.down = false; });
 
     window.addEventListener('keydown', (e) => {
+      const key = e.key.toLowerCase();
       if (e.key >= '1' && e.key <= '5') mode = Number(e.key);
-      if (e.key.toLowerCase() === 'h') {
+      if (key === 'h' && overlay) {
         uiVisible = !uiVisible;
         overlay.classList.toggle('is-hidden', !uiVisible);
       }
+      if (key === 'c') paletteOn = !paletteOn;
+      if (key === 'a') paletteShift = (paletteShift + 40) % 360;
+      if (key === 'g') glowOn = !glowOn;
+      if (key === 'v') linesOn = !linesOn;
+      if (key === 't') trailsOn = !trailsOn;
+      if (key === 'i') linksOn = !linksOn;
+      if (key === 'r') CFG.noiseSeed = Math.floor(Math.random() * 1000000);
+      updateStatus();
     });
 
     window.addEventListener('resize', () => {
@@ -261,20 +315,53 @@
     });
   }
 
+  function drawLinks() {
+    const maxD = CFG.linkDistance;
+    const maxD2 = maxD * maxD;
+    ctx.strokeStyle = 'rgba(242,242,242,0.2)';
+    ctx.lineWidth = 0.7;
+
+    for (let i = 0; i < particles.length; i += CFG.linkSampleStep) {
+      const p = particles[i];
+      for (let j = i + CFG.linkSampleStep; j < particles.length; j += CFG.linkSampleStep) {
+        const q = particles[j];
+        const dx = p.x - q.x;
+        const dy = p.y - q.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < maxD2) {
+          ctx.globalAlpha = (1 - d2 / maxD2) * 0.28;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(q.x, q.y);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function animate(tNow) {
     frameCounter++;
-    ctx.fillStyle = `rgba(4, 5, 10, ${CFG.bgFade})`;
-    ctx.fillRect(0, 0, w, h);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    if (trailsOn) {
+      ctx.fillStyle = `rgba(4, 5, 10, ${CFG.bgFade})`;
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = '#04050a';
+      ctx.fillRect(0, 0, w, h);
+    }
 
     const profile = MODES[mode];
-    ctx.fillStyle = '#f2f2f2';
-
     const t = tNow * 0.0006;
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       p.update(t + i * 0.00002, profile);
-      p.draw();
+      p.draw(tNow);
     }
+
+    if (linksOn) drawLinks();
 
     if (tNow - lastFpsT >= 400) {
       fps = frameCounter * 1000 / (tNow - lastFpsT);
