@@ -505,7 +505,6 @@
       updateStatus();
       console.error('[AF] Fatal init error', err);
     }
-  }
 
   function mix3(a, b, u) {
     return [
