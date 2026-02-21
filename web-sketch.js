@@ -4,89 +4,111 @@
   const CFG = {
     step: 5,
     maxPoints: 8000,
-    bgFade: 0.22,
-    mouseRadius: 180,
-    baseReturn: 0.045,
-    noiseSeed: 1337,
+    alphaThreshold: 32,
+    baseReturn: 0.085,
+    mouseRadius: 34,
+    padRatio: 0.08,
+    linksMaxDist: 7.5,
+    maxLinks: 1600,
   };
 
+  const BAUHAUS = [
+    [[245, 245, 245], [8, 8, 10], [230, 57, 70]],
+    [[8, 8, 10], [245, 245, 245], [69, 123, 157]],
+    [[222, 222, 222], [12, 12, 14], [241, 250, 60]],
+    [[245, 245, 245], [69, 123, 157], [230, 57, 70]],
+    [[15, 15, 20], [241, 250, 60], [230, 57, 70]],
+  ];
+
+  const FORCE_PROCEDURAL_MASK = true;
+
   const MODES = {
-    1: { swirl: 0.4, jitter: 0.15, speed: 0.95 },
-    2: { swirl: 0.8, jitter: 0.35, speed: 1.0 },
-    3: { swirl: 1.2, jitter: 0.55, speed: 1.05 },
-    4: { swirl: 1.8, jitter: 0.85, speed: 1.15 },
-    5: { swirl: 2.5, jitter: 1.2, speed: 1.25 },
+    1: { swirl: 0.28, jitter: 0.06, speed: 0.94 },
+    2: { swirl: 0.65, jitter: 0.11, speed: 1.0 },
+    3: { swirl: 1.0, jitter: 0.17, speed: 1.05 },
+    4: { swirl: 1.5, jitter: 0.24, speed: 1.12 },
+    5: { swirl: 2.1, jitter: 0.32, speed: 1.2 },
   };
 
   const canvas = document.getElementById('flux-canvas');
-  const statusNode = document.getElementById('status-readout');
-  const overlay = document.getElementById('overlay-ui');
-
-  if (!canvas) {
-    throw new Error('Missing #flux-canvas element in index.html.');
-  }
-
   const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx) {
-    throw new Error('Unable to initialize 2D context for #flux-canvas.');
-  }
+  const overlay = document.getElementById('overlay-ui');
+  const statusNode = document.getElementById('status-readout');
 
-  let mode = 2;
-  let uiVisible = true;
-  let source = 'boot';
-  let errorText = '';
-  let particles = [];
   let w = 0;
   let h = 0;
-  let dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-  let mouse = { x: -9999, y: -9999, down: false };
+  let dpr = 1;
+  let mode = 2;
+  let source = 'boot';
+  let errorText = '';
+  let uiVisible = true;
+  let glowOn = true;
+  let linesOn = true;
+  let trailsOn = true;
+  let linksOn = true;
+  let paletteOn = true;
+  let paletteShift = 0;
+  let seed = 4242;
+  let noiseSeed = seed;
+
+  let points = [];
+  let maskData = null;
+  let maskW = 0;
+  let maskH = 0;
+  let bbox = { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 };
+  let fit = { scale: 1, offsetX: 0, offsetY: 0 };
+
+  let mouse = { x: -1e6, y: -1e6, down: false };
   let fps = 0;
-  let lastFpsT = performance.now();
-  let frameCounter = 0;
-  let shapeImagePromise = null;
-  let resizeDebounceTimer = null;
-  let rebuildSerial = 0;
+  let fpsFrames = 0;
+  let fpsLast = performance.now();
 
   class Particle {
-    constructor(x, y, tier) {
+    constructor(x, y, tier, rand) {
       this.homeX = x;
       this.homeY = y;
-      this.x = Math.random() * w;
-      this.y = Math.random() * h;
+      this.x = x + (rand() - 0.5) * 18;
+      this.y = y + (rand() - 0.5) * 18;
+      this.px = this.x;
+      this.py = this.y;
       this.vx = 0;
       this.vy = 0;
       this.tier = tier;
-      this.size = tier === 0 ? 1.2 : tier === 1 ? 1.8 : 2.6;
-      this.drag = tier === 0 ? 0.9 : tier === 1 ? 0.88 : 0.85;
+      this.baseSize = tier === 0 ? 0.8 : tier === 1 ? 1.2 : 1.8;
+      this.drag = tier === 0 ? 0.9 : tier === 1 ? 0.875 : 0.84;
     }
 
-    update(t, profile) {
-      const dx = this.homeX - this.x;
-      const dy = this.homeY - this.y;
-      this.vx += dx * CFG.baseReturn * profile.speed;
-      this.vy += dy * CFG.baseReturn * profile.speed;
+    update(t, profile, mx, my) {
+      this.px = this.x;
+      this.py = this.y;
 
-      const nd = noise2(this.x * 0.005, this.y * 0.005, t) * profile.jitter;
-      this.vx += Math.cos(nd * 6.283) * 0.25;
-      this.vy += Math.sin(nd * 6.283) * 0.25;
+      const homeDx = this.homeX - this.x;
+      const homeDy = this.homeY - this.y;
+      this.vx += homeDx * CFG.baseReturn * profile.speed;
+      this.vy += homeDy * CFG.baseReturn * profile.speed;
 
-      const mx = this.x - mouse.x;
-      const my = this.y - mouse.y;
-      const md2 = mx * mx + my * my;
+      const n = noise2(this.x * 0.021, this.y * 0.021, t, noiseSeed);
+      const ang = n * Math.PI * 2;
+      this.vx += Math.cos(ang) * profile.jitter;
+      this.vy += Math.sin(ang) * profile.jitter;
+
+      const dxm = this.x - mx;
+      const dym = this.y - my;
+      const d2 = dxm * dxm + dym * dym;
       const rr = CFG.mouseRadius * CFG.mouseRadius;
-      if (md2 < rr) {
-        const inv = 1 / Math.sqrt(md2 + 1);
-        const nx = mx * inv;
-        const ny = my * inv;
+      if (d2 < rr) {
+        const inv = 1 / Math.sqrt(d2 + 1e-3);
+        const nx = dxm * inv;
+        const ny = dym * inv;
         const tx = -ny;
         const ty = nx;
-        const power = mouse.down ? 4.8 : 1.6;
-        const falloff = (1 - md2 / rr) * power;
-        this.vx += tx * profile.swirl * falloff;
-        this.vy += ty * profile.swirl * falloff;
+        const falloff = 1 - d2 / rr;
+        const swirl = profile.swirl * falloff;
+        this.vx += tx * swirl;
+        this.vy += ty * swirl;
         if (mouse.down) {
-          this.vx -= nx * 0.5 * falloff;
-          this.vy -= ny * 0.5 * falloff;
+          this.vx -= nx * 0.7 * falloff;
+          this.vy -= ny * 0.7 * falloff;
         }
       }
 
@@ -95,15 +117,32 @@
       this.x += this.vx;
       this.y += this.vy;
     }
-
-    draw() {
-      ctx.fillRect(this.x, this.y, this.size, this.size);
-    }
   }
 
-  function log(msg, data) {
-    if (data !== undefined) console.log(`[AF] ${msg}`, data);
+  function log(msg, payload) {
+    if (payload !== undefined) console.log(`[AF] ${msg}`, payload);
     else console.log(`[AF] ${msg}`);
+  }
+
+  function reseed() {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    noiseSeed = seed;
+    const rand = makeRand(seed ^ 0x9e3779b9);
+    for (let i = points.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = points[i].homeX;
+      points[i].homeX = points[j].homeX;
+      points[j].homeX = tmp;
+      const tmpY = points[i].homeY;
+      points[i].homeY = points[j].homeY;
+      points[j].homeY = tmpY;
+    }
+    for (const p of points) {
+      p.x = p.homeX + (rand() - 0.5) * 24;
+      p.y = p.homeY + (rand() - 0.5) * 24;
+      p.vx = (rand() - 0.5) * 2;
+      p.vy = (rand() - 0.5) * 2;
+    }
   }
 
   function resizeCanvas() {
@@ -112,125 +151,311 @@
     dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     canvas.width = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    computeFit();
   }
 
-  function buildMaskFromImage(img) {
+  function makeProceduralMask() {
+    // Fallback shaped to match Chakana Andina silhouette (stepped arms + circular center void).
+    maskW = 420;
+    maskH = 420;
     const off = document.createElement('canvas');
-    off.width = w;
-    off.height = h;
+    off.width = maskW;
+    off.height = maskH;
     const ox = off.getContext('2d');
-    ox.clearRect(0, 0, w, h);
+    ox.clearRect(0, 0, maskW, maskH);
 
-    const ratio = Math.min((w * 0.75) / img.width, (h * 0.75) / img.height);
-    const dw = Math.max(1, img.width * ratio);
-    const dh = Math.max(1, img.height * ratio);
-    ox.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-    return ox.getImageData(0, 0, w, h);
+    const u = 42;
+    const cx = Math.floor(maskW / 2);
+    const cy = Math.floor(maskH / 2);
+
+    ox.fillStyle = '#fff';
+
+    // Core block (5u x 5u)
+    ox.fillRect(cx - Math.floor(2.5 * u), cy - Math.floor(2.5 * u), 5 * u, 5 * u);
+
+    // Cardinal stepped arms (top, bottom: 3u x 2u; left, right: 2u x 3u)
+    ox.fillRect(cx - Math.floor(1.5 * u), cy - Math.floor(4.5 * u), 3 * u, 2 * u); // top
+    ox.fillRect(cx - Math.floor(1.5 * u), cy + Math.floor(2.5 * u), 3 * u, 2 * u); // bottom
+    ox.fillRect(cx - Math.floor(4.5 * u), cy - Math.floor(1.5 * u), 2 * u, 3 * u); // left
+    ox.fillRect(cx + Math.floor(2.5 * u), cy - Math.floor(1.5 * u), 2 * u, 3 * u); // right
+
+    // Center circular void
+    ox.save();
+    ox.globalCompositeOperation = 'destination-out';
+    ox.beginPath();
+    ox.arc(cx, cy, u * 1.45, 0, Math.PI * 2);
+    ox.fill();
+    ox.restore();
+
+    maskData = ox.getImageData(0, 0, maskW, maskH);
+    source = 'procedural';
+    log('Procedural chakana mask generated (Andean stepped profile).');
   }
 
-  function drawChakanaMask() {
-    const off = document.createElement('canvas');
-    off.width = w;
-    off.height = h;
-    const ox = off.getContext('2d');
-    ox.clearRect(0, 0, w, h);
-
-    const s = Math.floor(Math.min(w, h) * 0.06);
-    const ox0 = Math.floor(w / 2 - 3.5 * s);
-    const oy0 = Math.floor(h / 2 - 3.5 * s);
-
-    ox.fillStyle = 'rgba(255,255,255,1)';
-    for (let gy = 0; gy < 7; gy++) {
-      for (let gx = 0; gx < 7; gx++) {
-        const inCross = gx >= 2 && gx <= 4 || gy >= 2 && gy <= 4;
-        const inCore = gx >= 3 && gx <= 3 && gy >= 3 && gy <= 3;
-        if (inCross && !inCore) ox.fillRect(ox0 + gx * s, oy0 + gy * s, s, s);
-      }
-    }
-
-    ox.clearRect(Math.floor(w / 2 - s * 0.7), Math.floor(h / 2 - s * 0.7), Math.floor(s * 1.4), Math.floor(s * 1.4));
-    log('Procedural chakana mask generated.');
-    return ox.getImageData(0, 0, w, h);
-  }
-
-  function pointsFromMask(imageData, requestedSource) {
-    const pts = [];
+  function computeBBoxFromAlpha(imageData, threshold = CFG.alphaThreshold) {
     const data = imageData.data;
-    for (let y = 0; y < h; y += CFG.step) {
-      for (let x = 0; x < w; x += CFG.step) {
-        const i = (y * w + x) * 4;
-        if (data[i + 3] > 32) {
-          const r = Math.random();
-          const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
-          pts.push(new Particle(x + (Math.random() - 0.5), y + (Math.random() - 0.5), tier));
-          if (pts.length >= CFG.maxPoints) {
-            source = requestedSource;
-            log('Point cap reached.', CFG.maxPoints);
-            return pts;
-          }
+    let minX = imageData.width;
+    let minY = imageData.height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < imageData.height; y++) {
+      for (let x = 0; x < imageData.width; x++) {
+        const i = (y * imageData.width + x) * 4;
+        if (data[i + 3] > threshold) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
         }
       }
     }
-    source = requestedSource;
+
+    if (maxX < minX || maxY < minY) return null;
+    return { minX, minY, maxX, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  }
+
+  function computeFit() {
+    if (!bbox || !bbox.w || !bbox.h || !w || !h) {
+      fit = { scale: 1, offsetX: 0, offsetY: 0 };
+      return;
+    }
+    const pad = Math.min(w, h) * CFG.padRatio;
+    const scale = Math.min((w - 2 * pad) / bbox.w, (h - 2 * pad) / bbox.h);
+    const offsetX = (w - bbox.w * scale) / 2 - bbox.minX * scale;
+    const offsetY = (h - bbox.h * scale) / 2 - bbox.minY * scale;
+    fit = { scale, offsetX, offsetY };
+  }
+
+
+  function isMaskUsable(currentBbox) {
+    if (!currentBbox || !maskData) return false;
+    const widthRatio = currentBbox.w / maskW;
+    const heightRatio = currentBbox.h / maskH;
+    const aspect = currentBbox.w / currentBbox.h;
+
+    // Chakana expected: centered hole in the core. If center is fully occupied, reject shape mask.
+    const cx0 = Math.floor(currentBbox.minX + currentBbox.w * 0.45);
+    const cx1 = Math.ceil(currentBbox.minX + currentBbox.w * 0.55);
+    const cy0 = Math.floor(currentBbox.minY + currentBbox.h * 0.45);
+    const cy1 = Math.ceil(currentBbox.minY + currentBbox.h * 0.55);
+
+    let centerActive = 0;
+    let centerTotal = 0;
+    for (let y = cy0; y < cy1; y++) {
+      for (let x = cx0; x < cx1; x++) {
+        const i = (y * maskW + x) * 4;
+        if (maskData.data[i + 3] > CFG.alphaThreshold) centerActive++;
+        centerTotal++;
+      }
+    }
+
+    const cornerSpanX = Math.max(1, Math.floor(currentBbox.w * 0.12));
+    const cornerSpanY = Math.max(1, Math.floor(currentBbox.h * 0.12));
+    const corners = [
+      [currentBbox.minX, currentBbox.minY],
+      [currentBbox.maxX - cornerSpanX, currentBbox.minY],
+      [currentBbox.minX, currentBbox.maxY - cornerSpanY],
+      [currentBbox.maxX - cornerSpanX, currentBbox.maxY - cornerSpanY],
+    ];
+
+    let cornerActive = 0;
+    let cornerTotal = 0;
+    for (const [sx, sy] of corners) {
+      for (let y = sy; y < sy + cornerSpanY; y++) {
+        for (let x = sx; x < sx + cornerSpanX; x++) {
+          const i = (y * maskW + x) * 4;
+          if (maskData.data[i + 3] > CFG.alphaThreshold) cornerActive++;
+          cornerTotal++;
+        }
+      }
+    }
+
+    const centerFill = centerTotal > 0 ? centerActive / centerTotal : 1;
+    const cornerFill = cornerTotal > 0 ? cornerActive / cornerTotal : 1;
+    return widthRatio > 0.25 && heightRatio > 0.25 && aspect > 0.55 && aspect < 1.8 && centerFill < 0.35 && cornerFill < 0.22;
+  }
+
+  function pointsFromMask() {
+    if (!maskData) return [];
+    const pts = [];
+    const data = maskData.data;
+    const rand = makeRand(seed);
+    for (let y = 0; y < maskH; y += CFG.step) {
+      for (let x = 0; x < maskW; x += CFG.step) {
+        const i = (y * maskW + x) * 4;
+        if (data[i + 3] > CFG.alphaThreshold) {
+          const r = rand();
+          const tier = r < 0.62 ? 0 : r < 0.9 ? 1 : 2;
+          pts.push(new Particle(x + (rand() - 0.5) * 0.7, y + (rand() - 0.5) * 0.7, tier, rand));
+          if (pts.length >= CFG.maxPoints) return pts;
+        }
+      }
+    }
     return pts;
   }
 
-  function fallbackIfEmpty(reason) {
-    log(`Rebuilding from procedural fallback. Reason: ${reason}`);
-    const mask = drawChakanaMask();
-    particles = pointsFromMask(mask, 'procedural');
-    if (particles.length === 0) {
-      throw new Error('Fallback procedural mask generated 0 points. Increase mask size or reduce step.');
-    }
-  }
-
-  function loadShapeImage() {
-    if (!shapeImagePromise) {
-      shapeImagePromise = new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('shape.png failed to load.'));
-        img.src = './shape.png';
-      });
-    }
-    return shapeImagePromise;
-  }
-
-  async function rebuildParticles() {
-    const runId = ++rebuildSerial;
-    resizeCanvas();
+  async function loadMaskFromShape() {
     log('Loading ./shape.png…');
-    try {
-      const img = await loadShapeImage();
-      if (runId !== rebuildSerial) return;
-      log('shape.png loaded.', { width: img.width, height: img.height });
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('shape.png failed to load'));
+      el.src = './shape.png';
+    });
 
-      // Re-fit with the final canvas size after image load, then rebuild home points.
-      resizeCanvas();
-      const mask = buildMaskFromImage(img);
-      log('Mask generated from shape.png.');
-      particles = pointsFromMask(mask, 'shape.png');
-      if (particles.length === 0) fallbackIfEmpty('shape alpha produced 0 points');
+    log('shape.png loaded', { width: img.width, height: img.height });
+    maskW = img.width;
+    maskH = img.height;
+    const off = document.createElement('canvas');
+    off.width = maskW;
+    off.height = maskH;
+    const ox = off.getContext('2d');
+    ox.clearRect(0, 0, maskW, maskH);
+    ox.drawImage(img, 0, 0);
+    maskData = ox.getImageData(0, 0, maskW, maskH);
+    source = 'shape.png';
+    log('Mask generated from shape.png.');
+  }
+
+  async function rebuild() {
+    try {
+      if (FORCE_PROCEDURAL_MASK) throw new Error('shape bypassed to guarantee chakana silhouette');
+      await loadMaskFromShape();
+      bbox = computeBBoxFromAlpha(maskData);
+      if (!isMaskUsable(bbox)) throw new Error('shape alpha bbox invalid for chakana fit');
     } catch (err) {
-      if (runId !== rebuildSerial) return;
-      log('shape.png unavailable, using procedural fallback.', err.message);
-      resizeCanvas();
-      fallbackIfEmpty(err.message);
+      log('shape fallback trigger', err.message || String(err));
+      makeProceduralMask();
+      bbox = computeBBoxFromAlpha(maskData);
     }
 
-    if (runId !== rebuildSerial) return;
-    if (particles.length === 0) fallbackIfEmpty('safety net points.length === 0');
-    log(`Points ready: ${particles.length} | source: ${source}`);
+    if (!bbox) {
+      makeProceduralMask();
+      bbox = computeBBoxFromAlpha(maskData);
+      if (!bbox) throw new Error('procedural fallback also produced empty bbox');
+    }
+
+    computeFit();
+    points = pointsFromMask();
+    if (points.length === 0) {
+      log('No points found, forcing procedural rebuild.');
+      makeProceduralMask();
+      bbox = computeBBoxFromAlpha(maskData);
+      computeFit();
+      points = pointsFromMask();
+    }
+    if (points.length === 0) throw new Error('points.length is still 0 after procedural fallback');
+
+    log('points ready', { points: points.length, source, bbox, fit });
+  }
+
+  function paletteNow(t) {
+    const count = BAUHAUS.length;
+    if (!paletteOn) return BAUHAUS[(paletteShift + mode - 1 + count * 4) % count];
+
+    const cyc = (Math.sin(t * 0.35) * 0.5 + 0.5) * (count - 0.001);
+    const i0 = (Math.floor(cyc) + paletteShift) % count;
+    const i1 = (i0 + 1) % count;
+    const u = cyc - Math.floor(cyc);
+    return [
+      mix3(BAUHAUS[i0][0], BAUHAUS[i1][0], u),
+      mix3(BAUHAUS[i0][1], BAUHAUS[i1][1], u),
+      mix3(BAUHAUS[i0][2], BAUHAUS[i1][2], u),
+    ];
+  }
+
+  function drawLinks(ink) {
+    if (!linksOn) return;
+    const maxDist2 = CFG.linksMaxDist * CFG.linksMaxDist;
+    let drawn = 0;
+    ctx.lineWidth = 0.36;
+    ctx.strokeStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.22)`;
+    for (let i = 0; i < points.length && drawn < CFG.maxLinks; i += 2) {
+      const a = points[i];
+      for (let j = i + 3; j < points.length && drawn < CFG.maxLinks; j += 5) {
+        const b = points[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < maxDist2) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          drawn++;
+        }
+      }
+    }
+  }
+
+  function animate(ts) {
+    fpsFrames++;
+    const t = ts * 0.001;
+    const profile = MODES[mode];
+    const [ink, bg, glow] = paletteNow(t);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (trailsOn) {
+      ctx.fillStyle = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, 0.19)`;
+    } else {
+      ctx.fillStyle = `rgb(${bg[0]}, ${bg[1]}, ${bg[2]})`;
+    }
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.setTransform(dpr * fit.scale, 0, 0, dpr * fit.scale, dpr * fit.offsetX, dpr * fit.offsetY);
+
+    const mx = (mouse.x - fit.offsetX) / fit.scale;
+    const my = (mouse.y - fit.offsetY) / fit.scale;
+
+    if (linesOn) {
+      ctx.strokeStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.26)`;
+      ctx.lineWidth = 0.22;
+    }
+
+    for (const p of points) {
+      p.update(t, profile, mx, my);
+
+      if (linesOn) {
+        ctx.beginPath();
+        ctx.moveTo(p.px, p.py);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
+
+      const speed = Math.hypot(p.vx, p.vy);
+      const size = Math.min(3.2, p.baseSize + speed * 0.16);
+
+      if (glowOn) {
+        ctx.fillStyle = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, 0.10)`;
+        ctx.fillRect(p.x - size * 0.9, p.y - size * 0.9, size * 2.1, size * 2.1);
+      }
+
+      ctx.fillStyle = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.9)`;
+      ctx.fillRect(p.x, p.y, size, size);
+    }
+
+    drawLinks(ink);
+
+    const dt = ts - fpsLast;
+    if (dt > 350) {
+      fps = (fpsFrames * 1000) / dt;
+      fpsFrames = 0;
+      fpsLast = ts;
+      updateStatus();
+    }
+
+    requestAnimationFrame(animate);
   }
 
   function updateStatus() {
     if (!statusNode) return;
     if (errorText) {
-      statusNode.textContent = `ERROR: ${errorText} | Sugerencia: verifica ./shape.png (se usa procedural automáticamente)`;
-    } else {
-      statusNode.textContent = `points: ${particles.length} | fps: ${fps.toFixed(0)} | source: ${source} | mode: ${mode}`;
+      statusNode.textContent = `ERROR: ${errorText}`;
+      return;
     }
+    statusNode.textContent = `points: ${points.length} | fps: ${fps.toFixed(0)} | source: ${source} | mode:${mode} | P:${onOff(paletteOn)} V:${onOff(linesOn)} G:${onOff(glowOn)} T:${onOff(trailsOn)} L:${onOff(linksOn)}`;
   }
 
   function bindInput() {
@@ -243,77 +468,67 @@
     window.addEventListener('mouseleave', () => { mouse.down = false; });
 
     window.addEventListener('keydown', (e) => {
-      if (e.key >= '1' && e.key <= '5') mode = Number(e.key);
-      if (e.key.toLowerCase() === 'h') {
+      const k = e.key.toLowerCase();
+      if (k >= '1' && k <= '5') mode = Number(k);
+      else if (k === 'p') paletteOn = !paletteOn;
+      else if (k === 'c') paletteShift = (paletteShift + 1) % BAUHAUS.length;
+      else if (k === 'v') linesOn = !linesOn;
+      else if (k === 'g') glowOn = !glowOn;
+      else if (k === 't') trailsOn = !trailsOn;
+      else if (k === 'l') linksOn = !linksOn;
+      else if (k === 'r') reseed();
+      else if (k === 'h') {
         uiVisible = !uiVisible;
         overlay.classList.toggle('is-hidden', !uiVisible);
       }
-    });
-
-    window.addEventListener('resize', () => {
-      if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
-      resizeDebounceTimer = setTimeout(() => {
-        rebuildParticles().catch((err) => {
-          errorText = err.stack || String(err);
-          updateStatus();
-        });
-      }, 140);
-    });
-  }
-
-  function animate(tNow) {
-    frameCounter++;
-    ctx.fillStyle = `rgba(4, 5, 10, ${CFG.bgFade})`;
-    ctx.fillRect(0, 0, w, h);
-
-    const profile = MODES[mode];
-    ctx.fillStyle = '#f2f2f2';
-
-    const t = tNow * 0.0006;
-    for (let i = 0; i < particles.length; i++) {
-      const p = particles[i];
-      p.update(t + i * 0.00002, profile);
-      p.draw();
-    }
-
-    if (tNow - lastFpsT >= 400) {
-      fps = frameCounter * 1000 / (tNow - lastFpsT);
-      frameCounter = 0;
-      lastFpsT = tNow;
       updateStatus();
-    }
+    });
 
-    requestAnimationFrame(animate);
-  }
-
-  function noise2(x, y, t) {
-    const v = Math.sin((x * 12.9898 + y * 78.233 + t * 37.719 + CFG.noiseSeed) * 43758.5453123);
-    return v - Math.floor(v);
+    window.addEventListener('resize', async () => {
+      resizeCanvas();
+      computeFit();
+      updateStatus();
+    });
   }
 
   async function boot() {
     try {
       resizeCanvas();
       bindInput();
-      await rebuildParticles();
+      await rebuild();
+      updateStatus();
       window.__AF_SKETCH_READY__ = true;
       log('Render loop started.');
-      updateStatus();
       requestAnimationFrame(animate);
     } catch (err) {
       errorText = err.stack || String(err);
-      console.error('[AF] Fatal init error:', err);
       updateStatus();
-      try {
-        fallbackIfEmpty('fatal init catch');
-        errorText = '';
-        window.__AF_SKETCH_READY__ = true;
-        requestAnimationFrame(animate);
-      } catch (finalErr) {
-        errorText = finalErr.stack || String(finalErr);
-        updateStatus();
-      }
+      console.error('[AF] Fatal init error', err);
     }
+
+  function mix3(a, b, u) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * u),
+      Math.round(a[1] + (b[1] - a[1]) * u),
+      Math.round(a[2] + (b[2] - a[2]) * u),
+    ];
+  }
+
+  function makeRand(start) {
+    let s = start >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 0xffffffff;
+    };
+  }
+
+  function noise2(x, y, t, sn) {
+    const val = Math.sin((x * 12.9898 + y * 78.233 + t * 37.719 + sn * 0.0001) * 43758.5453);
+    return val - Math.floor(val);
+  }
+
+  function onOff(v) {
+    return v ? 'on' : 'off';
   }
 
   boot();
