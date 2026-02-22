@@ -20,24 +20,6 @@
     5: { swirl: 2.5, jitter: 1.2, speed: 1.25 },
   };
 
-
-  const KLEE_PALETTE = [
-    [166, 84, 62],   // terracotta / oxide red
-    [186, 128, 74],  // warm orange
-    [188, 162, 96],  // muted yellow
-    [122, 132, 86],  // olive green
-    [116, 136, 156], // dusty blue
-    [204, 170, 166], // pale pink
-    [104, 79, 62],   // earth brown
-    [137, 128, 118], // warm gray
-    [156, 110, 86],
-    [142, 150, 120],
-  ];
-
-  function clamp255(v) {
-    return Math.max(0, Math.min(255, v));
-  }
-
   const canvas = document.getElementById('flux-canvas');
   const statusNode = document.getElementById('status-readout');
   const overlay = document.getElementById('overlay-ui');
@@ -85,8 +67,6 @@
       this.tier = tier;
       this.size = tier === 0 ? 1.2 : tier === 1 ? 1.8 : 2.6;
       this.drag = tier === 0 ? 0.9 : tier === 1 ? 0.88 : 0.85;
-      this.baseColor = KLEE_PALETTE[Math.floor(Math.random() * KLEE_PALETTE.length)];
-      this.colorSeed = Math.random() * 100000;
     }
 
     update(t, profile) {
@@ -127,19 +107,10 @@
 
     draw(tNow) {
       if (paletteOn) {
-        const t = tNow * 0.001;
-        const breathe = Math.sin(t * 0.22 + this.colorSeed + paletteShift * 0.02) * 0.04;
-        const grain = (noise2(
-          this.x * 0.006 + this.colorSeed * 0.00001,
-          this.y * 0.006 + this.colorSeed * 0.00001,
-          t * 0.12 + this.colorSeed * 0.0001,
-        ) - 0.5) * 0.08;
-        const tint = 1 + breathe + grain;
-
-        const r = clamp255(this.baseColor[0] * tint);
-        const g = clamp255(this.baseColor[1] * tint);
-        const b = clamp255(this.baseColor[2] * tint);
-        ctx.fillStyle = `rgb(${r.toFixed(0)} ${g.toFixed(0)} ${b.toFixed(0)})`;
+        const hue = (paletteShift + this.tier * 38 + (tNow * 0.01)) % 360;
+        const sat = this.tier === 2 ? 92 : 76;
+        const light = this.tier === 0 ? 78 : this.tier === 1 ? 70 : 62;
+        ctx.fillStyle = `hsl(${hue} ${sat}% ${light}%)`;
       } else {
         ctx.fillStyle = '#f2f2f2';
       }
