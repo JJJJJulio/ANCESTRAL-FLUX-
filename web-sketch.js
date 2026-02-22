@@ -10,6 +10,9 @@
     noiseSeed: 1337,
     linkDistance: 20,
     linkSampleStep: 3,
+    proximityRadius: 22,
+    proximityBlend: 0.05,
+    proximityBoost: 0.045,
   };
 
   const MODES = {
@@ -38,6 +41,10 @@
     return Math.max(0, Math.min(255, v));
   }
 
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
   const canvas = document.getElementById('flux-canvas');
   const statusNode = document.getElementById('status-readout');
   const overlay = document.getElementById('overlay-ui');
@@ -63,6 +70,7 @@
   let fps = 0;
   let lastFpsT = performance.now();
   let frameCounter = 0;
+  let renderTick = 0;
   let shapeImagePromise = null;
   let resizeDebounceTimer = null;
   let rebuildSerial = 0;
@@ -73,6 +81,7 @@
   let linesOn = false;
   let trailsOn = true;
   let linksOn = false;
+  let cachedColorInfluence = null;
 
   class Particle {
     constructor(x, y, tier) {
@@ -125,7 +134,10 @@
       this.y += this.vy;
     }
 
-    draw(tNow) {
+    draw(tNow, colorInfluence) {
+      let colorR;
+      let colorG;
+      let colorB;
       if (paletteOn) {
         const t = tNow * 0.001;
         const breathe = Math.sin(t * 0.22 + this.colorSeed + paletteShift * 0.02) * 0.04;
@@ -136,12 +148,32 @@
         ) - 0.5) * 0.08;
         const tint = 1 + breathe + grain;
 
-        const r = clamp255(this.baseColor[0] * tint);
-        const g = clamp255(this.baseColor[1] * tint);
-        const b = clamp255(this.baseColor[2] * tint);
-        ctx.fillStyle = `rgb(${r.toFixed(0)} ${g.toFixed(0)} ${b.toFixed(0)})`;
+        colorR = this.baseColor[0] * tint;
+        colorG = this.baseColor[1] * tint;
+        colorB = this.baseColor[2] * tint;
+
+        if (colorInfluence) {
+          colorR = clamp255(lerp(colorR, colorInfluence.r, colorInfluence.mix) * (1 + colorInfluence.brightness));
+          colorG = clamp255(lerp(colorG, colorInfluence.g, colorInfluence.mix) * (1 + colorInfluence.brightness));
+          colorB = clamp255(lerp(colorB, colorInfluence.b, colorInfluence.mix) * (1 + colorInfluence.brightness));
+        } else {
+          colorR = clamp255(colorR);
+          colorG = clamp255(colorG);
+          colorB = clamp255(colorB);
+        }
+
+        ctx.fillStyle = `rgb(${colorR.toFixed(0)} ${colorG.toFixed(0)} ${colorB.toFixed(0)})`;
       } else {
         ctx.fillStyle = '#f2f2f2';
+      }
+
+      if (paletteOn && this.tier === 2 && (this.colorSeed % 8) < 1) {
+        const glowRadius = this.size * 1.5;
+        ctx.globalAlpha = 0.045;
+        ctx.beginPath();
+        ctx.arc(this.x + this.size * 0.5, this.y + this.size * 0.5, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
       }
 
       if (glowOn) {
@@ -295,6 +327,7 @@
 
     if (runId !== rebuildSerial) return;
     if (particles.length === 0) fallbackIfEmpty('safety net points.length === 0');
+    cachedColorInfluence = null;
     log(`Points ready: ${particles.length} | source: ${source}`);
   }
 
@@ -369,8 +402,82 @@
     ctx.globalAlpha = 1;
   }
 
+  function computeProximityInfluence() {
+    const n = particles.length;
+    const mix = new Float32Array(n);
+    const bright = new Float32Array(n);
+    const nearR = new Float32Array(n);
+    const nearG = new Float32Array(n);
+    const nearB = new Float32Array(n);
+    const nearW = new Float32Array(n);
+
+    const radius = CFG.proximityRadius;
+    const cellSize = radius;
+    const grid = new Map();
+    const sampleStep = 3;
+
+    for (let i = 0; i < n; i += sampleStep) {
+      const p = particles[i];
+      const cx = Math.floor(p.x / cellSize);
+      const cy = Math.floor(p.y / cellSize);
+      const key = `${cx},${cy}`;
+      const cell = grid.get(key);
+      if (cell) {
+        cell.r += p.baseColor[0];
+        cell.g += p.baseColor[1];
+        cell.b += p.baseColor[2];
+        cell.count += 1;
+      } else {
+        grid.set(key, { r: p.baseColor[0], g: p.baseColor[1], b: p.baseColor[2], count: 1 });
+      }
+    }
+    for (let i = 0; i < n; i += sampleStep) {
+      const p = particles[i];
+      const cx = Math.floor(p.x / cellSize);
+      const cy = Math.floor(p.y / cellSize);
+      let localDensity = 0;
+
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const cell = grid.get(`${cx + ox},${cy + oy}`);
+          if (!cell) continue;
+          const distCell = Math.sqrt(ox * ox + oy * oy);
+          const cellFalloff = 1 / (1 + distCell);
+          const w = cell.count * cellFalloff;
+
+          nearR[i] += (cell.r / cell.count) * w;
+          nearG[i] += (cell.g / cell.count) * w;
+          nearB[i] += (cell.b / cell.count) * w;
+          nearW[i] += w;
+          localDensity += cell.count * cellFalloff;
+        }
+      }
+
+      const densityNorm = Math.min(1, localDensity / 20);
+      mix[i] = CFG.proximityBlend * densityNorm;
+      bright[i] = CFG.proximityBoost * densityNorm;
+    }
+
+    const influence = new Array(n);
+    for (let i = 0; i < n; i++) {
+      if (i % sampleStep !== 0 || nearW[i] <= 0.0001) {
+        influence[i] = null;
+        continue;
+      }
+      influence[i] = {
+        r: nearR[i] / nearW[i],
+        g: nearG[i] / nearW[i],
+        b: nearB[i] / nearW[i],
+        mix: Math.min(0.08, mix[i]),
+        brightness: Math.min(0.06, bright[i]),
+      };
+    }
+    return influence;
+  }
+
   function animate(tNow) {
     frameCounter++;
+    renderTick++;
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
 
@@ -384,13 +491,30 @@
 
     const profile = MODES[mode];
     const t = tNow * 0.0006;
+
+    const breathingScale = 1 + 0.015 * Math.sin(tNow * 0.0004);
+    if (paletteOn) {
+      if (!cachedColorInfluence || renderTick % 12 === 0) {
+        cachedColorInfluence = computeProximityInfluence();
+      }
+    } else {
+      cachedColorInfluence = null;
+    }
+
+    ctx.save();
+    ctx.translate(w * 0.5, h * 0.5);
+    ctx.scale(breathingScale, breathingScale);
+    ctx.translate(-w * 0.5, -h * 0.5);
+
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       p.update(t + i * 0.00002, profile);
-      p.draw(tNow);
+      p.draw(tNow, cachedColorInfluence ? cachedColorInfluence[i] : null);
     }
 
     if (linksOn) drawLinks();
+
+    ctx.restore();
 
     if (tNow - lastFpsT >= 400) {
       fps = frameCounter * 1000 / (tNow - lastFpsT);
