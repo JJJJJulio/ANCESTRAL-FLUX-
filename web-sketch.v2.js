@@ -10,9 +10,6 @@
     noiseSeed: 1337,
     linkDistance: 20,
     linkSampleStep: 3,
-    proximityRadius: 22,
-    proximityBlend: 0.05,
-    proximityBoost: 0.045,
   };
 
   const MODES = {
@@ -22,28 +19,6 @@
     4: { swirl: 1.8, jitter: 0.85, speed: 1.15 },
     5: { swirl: 2.5, jitter: 1.2, speed: 1.25 },
   };
-
-
-  const KLEE_PALETTE = [
-    [166, 84, 62],   // terracotta / oxide red
-    [186, 128, 74],  // warm orange
-    [188, 162, 96],  // muted yellow
-    [122, 132, 86],  // olive green
-    [116, 136, 156], // dusty blue
-    [204, 170, 166], // pale pink
-    [104, 79, 62],   // earth brown
-    [137, 128, 118], // warm gray
-    [156, 110, 86],
-    [142, 150, 120],
-  ];
-
-  function clamp255(v) {
-    return Math.max(0, Math.min(255, v));
-  }
-
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
 
   const canvas = document.getElementById('flux-canvas');
   const statusNode = document.getElementById('status-readout');
@@ -70,7 +45,6 @@
   let fps = 0;
   let lastFpsT = performance.now();
   let frameCounter = 0;
-  let renderTick = 0;
   let shapeImagePromise = null;
   let resizeDebounceTimer = null;
   let rebuildSerial = 0;
@@ -81,7 +55,6 @@
   let linesOn = false;
   let trailsOn = true;
   let linksOn = false;
-  let cachedColorInfluence = null;
 
   class Particle {
     constructor(x, y, tier) {
@@ -94,8 +67,6 @@
       this.tier = tier;
       this.size = tier === 0 ? 1.2 : tier === 1 ? 1.8 : 2.6;
       this.drag = tier === 0 ? 0.9 : tier === 1 ? 0.88 : 0.85;
-      this.baseColor = KLEE_PALETTE[Math.floor(Math.random() * KLEE_PALETTE.length)];
-      this.colorSeed = Math.random() * 100000;
     }
 
     update(t, profile) {
@@ -134,46 +105,14 @@
       this.y += this.vy;
     }
 
-    draw(tNow, colorInfluence) {
-      let colorR;
-      let colorG;
-      let colorB;
+    draw(tNow) {
       if (paletteOn) {
-        const t = tNow * 0.001;
-        const breathe = Math.sin(t * 0.22 + this.colorSeed + paletteShift * 0.02) * 0.04;
-        const grain = (noise2(
-          this.x * 0.006 + this.colorSeed * 0.00001,
-          this.y * 0.006 + this.colorSeed * 0.00001,
-          t * 0.12 + this.colorSeed * 0.0001,
-        ) - 0.5) * 0.08;
-        const tint = 1 + breathe + grain;
-
-        colorR = this.baseColor[0] * tint;
-        colorG = this.baseColor[1] * tint;
-        colorB = this.baseColor[2] * tint;
-
-        if (colorInfluence) {
-          colorR = clamp255(lerp(colorR, colorInfluence.r, colorInfluence.mix) * (1 + colorInfluence.brightness));
-          colorG = clamp255(lerp(colorG, colorInfluence.g, colorInfluence.mix) * (1 + colorInfluence.brightness));
-          colorB = clamp255(lerp(colorB, colorInfluence.b, colorInfluence.mix) * (1 + colorInfluence.brightness));
-        } else {
-          colorR = clamp255(colorR);
-          colorG = clamp255(colorG);
-          colorB = clamp255(colorB);
-        }
-
-        ctx.fillStyle = `rgb(${colorR.toFixed(0)} ${colorG.toFixed(0)} ${colorB.toFixed(0)})`;
+        const hue = (paletteShift + this.tier * 38 + (tNow * 0.01)) % 360;
+        const sat = this.tier === 2 ? 92 : 76;
+        const light = this.tier === 0 ? 78 : this.tier === 1 ? 70 : 62;
+        ctx.fillStyle = `hsl(${hue} ${sat}% ${light}%)`;
       } else {
         ctx.fillStyle = '#f2f2f2';
-      }
-
-      if (paletteOn && this.tier === 2 && (this.colorSeed % 8) < 1) {
-        const glowRadius = this.size * 1.5;
-        ctx.globalAlpha = 0.045;
-        ctx.beginPath();
-        ctx.arc(this.x + this.size * 0.5, this.y + this.size * 0.5, glowRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
       }
 
       if (glowOn) {
@@ -327,7 +266,6 @@
 
     if (runId !== rebuildSerial) return;
     if (particles.length === 0) fallbackIfEmpty('safety net points.length === 0');
-    cachedColorInfluence = null;
     log(`Points ready: ${particles.length} | source: ${source}`);
   }
 
@@ -402,82 +340,8 @@
     ctx.globalAlpha = 1;
   }
 
-  function computeProximityInfluence() {
-    const n = particles.length;
-    const mix = new Float32Array(n);
-    const bright = new Float32Array(n);
-    const nearR = new Float32Array(n);
-    const nearG = new Float32Array(n);
-    const nearB = new Float32Array(n);
-    const nearW = new Float32Array(n);
-
-    const radius = CFG.proximityRadius;
-    const cellSize = radius;
-    const grid = new Map();
-    const sampleStep = 3;
-
-    for (let i = 0; i < n; i += sampleStep) {
-      const p = particles[i];
-      const cx = Math.floor(p.x / cellSize);
-      const cy = Math.floor(p.y / cellSize);
-      const key = `${cx},${cy}`;
-      const cell = grid.get(key);
-      if (cell) {
-        cell.r += p.baseColor[0];
-        cell.g += p.baseColor[1];
-        cell.b += p.baseColor[2];
-        cell.count += 1;
-      } else {
-        grid.set(key, { r: p.baseColor[0], g: p.baseColor[1], b: p.baseColor[2], count: 1 });
-      }
-    }
-    for (let i = 0; i < n; i += sampleStep) {
-      const p = particles[i];
-      const cx = Math.floor(p.x / cellSize);
-      const cy = Math.floor(p.y / cellSize);
-      let localDensity = 0;
-
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          const cell = grid.get(`${cx + ox},${cy + oy}`);
-          if (!cell) continue;
-          const distCell = Math.sqrt(ox * ox + oy * oy);
-          const cellFalloff = 1 / (1 + distCell);
-          const w = cell.count * cellFalloff;
-
-          nearR[i] += (cell.r / cell.count) * w;
-          nearG[i] += (cell.g / cell.count) * w;
-          nearB[i] += (cell.b / cell.count) * w;
-          nearW[i] += w;
-          localDensity += cell.count * cellFalloff;
-        }
-      }
-
-      const densityNorm = Math.min(1, localDensity / 20);
-      mix[i] = CFG.proximityBlend * densityNorm;
-      bright[i] = CFG.proximityBoost * densityNorm;
-    }
-
-    const influence = new Array(n);
-    for (let i = 0; i < n; i++) {
-      if (i % sampleStep !== 0 || nearW[i] <= 0.0001) {
-        influence[i] = null;
-        continue;
-      }
-      influence[i] = {
-        r: nearR[i] / nearW[i],
-        g: nearG[i] / nearW[i],
-        b: nearB[i] / nearW[i],
-        mix: Math.min(0.08, mix[i]),
-        brightness: Math.min(0.06, bright[i]),
-      };
-    }
-    return influence;
-  }
-
   function animate(tNow) {
     frameCounter++;
-    renderTick++;
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
 
@@ -491,30 +355,13 @@
 
     const profile = MODES[mode];
     const t = tNow * 0.0006;
-
-    const breathingScale = 1 + 0.015 * Math.sin(tNow * 0.0004);
-    if (paletteOn) {
-      if (!cachedColorInfluence || renderTick % 12 === 0) {
-        cachedColorInfluence = computeProximityInfluence();
-      }
-    } else {
-      cachedColorInfluence = null;
-    }
-
-    ctx.save();
-    ctx.translate(w * 0.5, h * 0.5);
-    ctx.scale(breathingScale, breathingScale);
-    ctx.translate(-w * 0.5, -h * 0.5);
-
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       p.update(t + i * 0.00002, profile);
-      p.draw(tNow, cachedColorInfluence ? cachedColorInfluence[i] : null);
+      p.draw(tNow);
     }
 
     if (linksOn) drawLinks();
-
-    ctx.restore();
 
     if (tNow - lastFpsT >= 400) {
       fps = frameCounter * 1000 / (tNow - lastFpsT);
